@@ -2,11 +2,11 @@
 export type Category = {
   slug: string;
   name: string;
-  icon?: string;  // optional: if you want to show icons later
-  count?: number; // optional: if you want to show number of tools/items
+  icon?: string;
+  count?: number;
 };
 
-export const CATEGORIES: Category[] = [
+const CATEGORIES: Category[] = [
   { slug: "chatbots", name: "Chatbots" },
   { slug: "image", name: "Image Generation" },
   { slug: "video", name: "Video" },
@@ -32,3 +32,5 @@ export const CATEGORIES: Category[] = [
   { slug: "sales", name: "Sales" },
   { slug: "other", name: "Other" }
 ];
+
+export default CATEGORIES;
