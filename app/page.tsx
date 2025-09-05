@@ -1,7 +1,9 @@
+// app/page.tsx
 import { NavigationHeader } from "@/components/navigation-header";
 import { Hero } from "@/components/hero";
 import { FeaturedTools } from "@/components/featured-tools";
-import { CategoryFilter } from "@/components/category-filter";
+// CHANGED: default import from PascalCase file
+import CategoryFilter from "@/components/CategoryFilter";
 import { ToolsGrid } from "@/components/tools-grid";
 import { Stats } from "@/components/stats";
 import { Newsletter } from "@/components/newsletter";
