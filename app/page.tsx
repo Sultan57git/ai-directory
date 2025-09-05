@@ -2,7 +2,6 @@
 import { NavigationHeader } from "@/components/navigation-header";
 import { Hero } from "@/components/hero";
 import { FeaturedTools } from "@/components/featured-tools";
-// CHANGED: default import from PascalCase file
 import CategoryFilter from "@/components/CategoryFilter";
 import { ToolsGrid } from "@/components/tools-grid";
 import { Stats } from "@/components/stats";
