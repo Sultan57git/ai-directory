@@ -1,3 +1,4 @@
+// app/categories/[slug]/page.tsx
 import { notFound } from "next/navigation";
 import CATEGORIES from "@/lib/categories";
 import CategoryFilter from "@/components/CategoryFilter";
@@ -28,10 +29,12 @@ export default function CategoryPage({ params }: Props) {
         Browse AI tools under <strong>{category.name}</strong>.
       </p>
 
+      {/* Quick switcher */}
       <div className="mb-8">
         <CategoryFilter />
       </div>
 
+      {/* Replace with your real listing */}
       <section className="rounded-2xl border p-6 bg-background">
         <h2 className="text-xl font-semibold mb-3">Featured in {category.name}</h2>
         <p className="text-sm text-muted-foreground">
