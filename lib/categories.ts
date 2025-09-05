@@ -1,5 +1,10 @@
-// src/lib/categories.ts
-export type Category = { slug: string; name: string; icon?: string; count?: number };
+// lib/categories.ts
+export type Category = {
+  slug: string;
+  name: string;
+  icon?: string;  // optional: if you want to show icons later
+  count?: number; // optional: if you want to show number of tools/items
+};
 
 export const CATEGORIES: Category[] = [
   { slug: "chatbots", name: "Chatbots" },
@@ -21,7 +26,9 @@ export const CATEGORIES: Category[] = [
   { slug: "security", name: "Security" },
   { slug: "agents", name: "AI Agents" },
   { slug: "travel", name: "Travel" },
-  { slug: "other", name: "Other" },
+  { slug: "ecommerce", name: "E-commerce" },
+  { slug: "gaming", name: "Gaming" },
+  { slug: "hr", name: "HR / Hiring" },
+  { slug: "sales", name: "Sales" },
+  { slug: "other", name: "Other" }
 ];
-
-export default CATEGORIES;
