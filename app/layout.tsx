@@ -7,7 +7,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 
-import "@/styles/globals.css"; // ✅ use the styles/globals.css file with Tailwind + tokens
+import "@/styles/globals.css";
 
 export const metadata: Metadata = {
   title: "AI Directory - Discover the Best AI Tools",
@@ -16,23 +16,12 @@ export const metadata: Metadata = {
   generator: "v0.app",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body
-        className={`min-h-screen bg-background text-foreground font-sans antialiased ${GeistSans.variable} ${GeistMono.variable}`}
-      >
+      <body className={`min-h-screen bg-background text-foreground font-sans antialiased ${GeistSans.variable} ${GeistMono.variable}`}>
         <Suspense fallback={null}>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          >
+          <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
             <AuthProvider>{children}</AuthProvider>
           </ThemeProvider>
         </Suspense>
