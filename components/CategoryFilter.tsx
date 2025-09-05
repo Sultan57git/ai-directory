@@ -7,6 +7,8 @@ export default function CategoryFilter() {
       {CATEGORIES.map((c) => (
         <button
           key={c.slug}
+          type="button"
+          aria-label={c.name}
           className="px-3 py-2 rounded-xl border bg-white/50 hover:bg-white transition"
         >
           {c.name}
