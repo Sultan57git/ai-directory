@@ -1,3 +1,4 @@
+// components/CategoryFilter.tsx
 import Link from "next/link";
 import CATEGORIES from "@/lib/categories";
 
