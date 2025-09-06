@@ -1,5 +1,4 @@
 // app/page.tsx
-import { NavigationHeader } from "@/components/navigation-header";
 import { Hero } from "@/components/hero";
 import { FeaturedTools } from "@/components/featured-tools";
 import CategoryFilter from "@/components/CategoryFilter";
@@ -14,16 +13,18 @@ export default function HomePage() {
     <main id="main" className="min-h-screen bg-background text-foreground">
       {/* Organization JSON-LD */}
       {/* @ts-ignore */}
-      <SeoJsonLd json={{
-        "@context": "https://schema.org",
-        "@type": "Organization",
-        "name": "BrowseAI Online",
-        "url": "https://browseai.online",
-        "logo": "https://browseai.online/icon.svg",
-        "sameAs": ["https://twitter.com/browseai_online"]
-      }}/>
+      <SeoJsonLd
+        json={{
+          "@context": "https://schema.org",
+          "@type": "Organization",
+          name: "BrowseAI Online",
+          url: "https://browseai.online",
+          logo: "https://browseai.online/icon.svg",
+          sameAs: ["https://twitter.com/browseai_online"],
+        }}
+      />
 
-      <NavigationHeader />
+      {/* Header removed here; it's already in app/layout.tsx */}
 
       <section className="border-b">
         <Hero />
