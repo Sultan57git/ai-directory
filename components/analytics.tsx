@@ -2,15 +2,19 @@
 "use client";
 import Script from "next/script";
 
-const GA_ID = process.env.NEXT_PUBLIC_GA_ID;         // e.g., G-XXXXXXX
-const PLAUSIBLE = process.env.NEXT_PUBLIC_PLAUSIBLE; // e.g., browseai.online
+const GA_ID = process.env.NEXT_PUBLIC_GA_ID;          // e.g., G-XXXXXXX
+const PLAUSIBLE = process.env.NEXT_PUBLIC_PLAUSIBLE;  // e.g., browseai.online
 
 export function Analytics() {
   return (
     <>
+      {/* Google Analytics */}
       {GA_ID && (
         <>
-          <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`} strategy="afterInteractive" />
+          <Script
+            src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+            strategy="afterInteractive"
+          />
           <Script id="ga" strategy="afterInteractive">
             {`
               window.dataLayer = window.dataLayer || [];
@@ -21,14 +25,8 @@ export function Analytics() {
           </Script>
         </>
       )}
-      {PLAUDIBLE && ( // typo? (we keep both lines for safety)
-        <Script
-          defer
-          data-domain={PLAUDIBLE as string}
-          src="https://plausible.io/js/script.js"
-          strategy="afterInteractive"
-        />
-      )}
+
+      {/* Plausible Analytics */}
       {PLAUSIBLE && (
         <Script
           defer
