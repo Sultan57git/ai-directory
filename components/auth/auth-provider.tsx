@@ -1,112 +1,79 @@
-"use client"
+// components/auth/auth-provider.tsx
+"use client";
 
-import type React from "react"
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 
-import { createContext, useContext, useEffect, useState } from "react"
+// Allow 'admin' | 'user' plus any string to be flexible with roles.
+type Role = "admin" | "user" | (string & {});
+export type User = {
+  email: string;
+  name: string;
+  role: Role;
+};
 
-interface AuthContextType {
-  user: any
-  isAuthenticated: boolean
-  isAdmin: boolean
-  login: (email: string, password: string) => Promise<void>
-  logout: () => void
-  loading: boolean
-}
+type AuthContextValue = {
+  user: User | null;
+  isAdmin: boolean;
+  setUser: (u: User | null) => void;
+  login: (email: string, name: string, role?: string) => void;
+  logout: () => void;
+};
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState(null)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [loading, setLoading] = useState(true)
+export function AuthProvider({ children }: { children: ReactNode }) {
+  // ✅ Give useState a generic so the setter accepts User | null
+  const [user, setUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
+  // Optional: hydrate from localStorage (safe no-op on server)
   useEffect(() => {
-    // Check for existing authentication on mount
-    const checkAuth = () => {
-      const authStatus = localStorage.getItem("isAuthenticated")
-      const userRole = localStorage.getItem("userRole")
-      const userEmail = localStorage.getItem("userEmail")
-      const userName = localStorage.getItem("userName")
+    if (typeof window === "undefined") return;
+    const raw = localStorage.getItem("auth.user");
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as User;
+      setUser(parsed);
+      setIsAdmin(parsed.role === "admin");
+    } catch {}
+  }, []);
 
-      if (authStatus === "true") {
-        setIsAuthenticated(true)
-        setIsAdmin(userRole === "admin")
-        setUser({
-          email: userEmail,
-          name: userName,
-          role: userRole,
-        })
-
-        // Set cookies for middleware
-        document.cookie = `isAuthenticated=true; path=/`
-        document.cookie = `userRole=${userRole}; path=/`
-      }
-
-      setLoading(false)
+  // Persist to localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (user) {
+      localStorage.setItem("auth.user", JSON.stringify(user));
+    } else {
+      localStorage.removeItem("auth.user");
     }
+  }, [user]);
 
-    checkAuth()
-  }, [])
-
-  const login = async (email: string, password: string) => {
-    // Mock authentication logic
-    const isAdminUser = email === "admin@aidirectory.com"
-    const role = isAdminUser ? "admin" : "user"
-
-    localStorage.setItem("isAuthenticated", "true")
-    localStorage.setItem("userRole", role)
-    localStorage.setItem("userEmail", email)
-    localStorage.setItem("userName", email.split("@")[0])
-
-    // Set cookies for middleware
-    document.cookie = `isAuthenticated=true; path=/`
-    document.cookie = `userRole=${role}; path=/`
-
-    setIsAuthenticated(true)
-    setIsAdmin(isAdminUser)
-    setUser({
-      email,
-      name: email.split("@")[0],
-      role,
-    })
-  }
+  const login = (email: string, name: string, role: string = "user") => {
+    const nextUser: User = { email, name, role: role as Role };
+    setUser(nextUser);
+    setIsAdmin(nextUser.role === "admin");
+  };
 
   const logout = () => {
-    localStorage.removeItem("isAuthenticated")
-    localStorage.removeItem("userRole")
-    localStorage.removeItem("userEmail")
-    localStorage.removeItem("userName")
-
-    // Clear cookies
-    document.cookie = "isAuthenticated=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT"
-    document.cookie = "userRole=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT"
-
-    setIsAuthenticated(false)
-    setIsAdmin(false)
-    setUser(null)
-  }
+    setUser(null);
+    setIsAdmin(false);
+  };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isAuthenticated,
-        isAdmin,
-        login,
-        logout,
-        loading,
-      }}
-    >
+    <AuthContext.Provider value={{ user, isAdmin, setUser, login, logout }}>
       {children}
     </AuthContext.Provider>
-  )
+  );
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext)
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider")
-  }
-  return context
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within <AuthProvider>");
+  return ctx;
 }
