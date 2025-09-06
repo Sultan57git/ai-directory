@@ -1,37 +1,26 @@
-import { SubmissionForm } from "@/components/submission-form"
-import { SubmissionGuidelines } from "@/components/submission-guidelines"
+// app/submit/page.tsx
+import SubmissionForm from "@/components/submission-form";
+import { SubmissionGuidelines } from "@/components/submission-guidelines";
 
 export const metadata = {
-  title: "Submit Your AI Tool | AI Directory",
-  description: "Submit your AI tool to our directory and reach thousands of potential users.",
-}
+  title: "Submit a Tool",
+  description: "Share your AI tool with the BrowseAI Online directory.",
+};
 
 export default function SubmitPage() {
   return (
-    <main className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-16">
-        <div className="mx-auto max-w-4xl">
-          {/* Header */}
-          <div className="mb-12 text-center">
-            <h1 className="mb-4 text-4xl font-bold text-balance">Submit Your AI Tool</h1>
-            <p className="text-lg text-muted-foreground text-pretty">
-              Share your AI innovation with our community of 500,000+ users and developers
-            </p>
-          </div>
+    <main className="container mx-auto px-4 py-10">
+      <h1 className="text-3xl font-bold mb-6">Submit Your Tool</h1>
 
-          <div className="grid gap-8 lg:grid-cols-3">
-            {/* Guidelines Sidebar */}
-            <div className="lg:col-span-1">
-              <SubmissionGuidelines />
-            </div>
+      <div className="grid gap-8 md:grid-cols-3">
+        <section className="md:col-span-2">
+          <SubmissionForm />
+        </section>
 
-            {/* Submission Form */}
-            <div className="lg:col-span-2">
-              <SubmissionForm />
-            </div>
-          </div>
-        </div>
+        <aside className="md:col-span-1">
+          <SubmissionGuidelines />
+        </aside>
       </div>
     </main>
-  )
+  );
 }
