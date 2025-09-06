@@ -3,7 +3,7 @@ import type { MetadataRoute } from "next";
 import CATEGORIES from "@/lib/categories";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://your-domain.com";
+  const base = "https://browseai.online";
 
   const staticRoutes = ["/", "/categories"].map((p) => ({
     url: `${base}${p}`,
