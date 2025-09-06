@@ -1,42 +1,27 @@
 // app/layout.tsx
-import "./globals.css";
 import type { Metadata } from "next";
-import { Analytics } from "@/components/analytics";
-import { SkipToContent } from "@/components/skip-to-content";
+import "./globals.css";
+
+import { ThemeProvider } from "@/components/theme-provider";
+import { AuthProvider } from "@/components/auth/auth-provider";
+import { NavigationHeader } from "@/components/navigation-header";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://browseai.online"),
-  title: { default: "BrowseAI Online", template: "%s • BrowseAI Online" },
-  description:
-    "Discover and explore AI tools by category on BrowseAI Online. Browse 20+ categories, explore tools, and find the right AI for you.",
-  openGraph: {
-    title: "BrowseAI Online",
-    description:
-      "Discover and explore AI tools by category on BrowseAI Online. Browse 20+ categories, explore tools, and find the right AI for you.",
-    url: "https://browseai.online",
-    siteName: "BrowseAI Online",
-    images: ["/opengraph-image"],
-    locale: "en_US",
-    type: "website",
-  },
-  twitter: {
-    card: "summary_large_image",
-    site: "@browseai_online",
-    creator: "@browseai_online",
-    images: ["/twitter-image"],
-  },
-  robots: { index: true, follow: true },
-  manifest: "/manifest.webmanifest",
-  alternates: { canonical: "https://browseai.online" },
+  title: "AI Directory",
+  description: "Browse AI tools at browseai.online",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="min-h-screen bg-background text-foreground antialiased">
-        <SkipToContent />
-        {children}
-        <Analytics />
+    <html lang="en" suppressHydrationWarning>
+      <body>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          {/* ✅ Provide auth to the whole app */}
+          <AuthProvider>
+            <NavigationHeader />
+            {children}
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
