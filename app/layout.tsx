@@ -26,7 +26,7 @@ export const metadata: Metadata = {
     images: ["/twitter-image"],
   },
   robots: { index: true, follow: true },
-  manifest: "/manifest.webmanifest", // served from app/manifest.ts
+  manifest: "/manifest.webmanifest",
   alternates: { canonical: "https://browseai.online" },
 };
 
