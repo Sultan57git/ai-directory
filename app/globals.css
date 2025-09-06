@@ -3,7 +3,6 @@
 @tailwind utilities;
 
 /* Optional animations plugin */
-@import "tw-animate-css";
 
 /* Light mode variables */
 :root {
