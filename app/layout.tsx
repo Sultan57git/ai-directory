@@ -1,31 +1,39 @@
+// app/layout.tsx
+import "./globals.css";
 import type { Metadata } from "next";
-import { Suspense } from "react";
-import { GeistSans } from "geist/font/sans";
-import { GeistMono } from "geist/font/mono";
-import { Analytics } from "@vercel/analytics/next";
-
-import { AuthProvider } from "@/components/auth/auth-provider";
-import { ThemeProvider } from "@/components/theme-provider";
-
-import "@/styles/globals.css";
 
 export const metadata: Metadata = {
-  title: "AI Directory - Discover the Best AI Tools",
+  metadataBase: new URL("https://browseai.online"),
+  title: {
+    default: "BrowseAI Online",
+    template: "%s • BrowseAI Online",
+  },
   description:
-    "The ultimate directory for AI tools and services. Discover, compare, and integrate the world's most powerful AI solutions.",
-  generator: "v0.app",
+    "Discover and explore AI tools by category on BrowseAI Online. Browse 20+ categories, explore tools, and find the right AI for you.",
+  openGraph: {
+    title: "BrowseAI Online",
+    description:
+      "Discover and explore AI tools by category on BrowseAI Online. Browse 20+ categories, explore tools, and find the right AI for you.",
+    url: "https://browseai.online",
+    siteName: "BrowseAI Online",
+    locale: "en_US",
+    type: "website",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`min-h-screen bg-background text-foreground font-sans antialiased ${GeistSans.variable} ${GeistMono.variable}`}>
-        <Suspense fallback={null}>
-          <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-            <AuthProvider>{children}</AuthProvider>
-          </ThemeProvider>
-        </Suspense>
-        <Analytics />
+    <html lang="en">
+      <body className="min-h-screen bg-background text-foreground antialiased">
+        {children}
       </body>
     </html>
   );
