@@ -1,13 +1,12 @@
 // app/layout.tsx
 import "./globals.css";
 import type { Metadata } from "next";
+import { Analytics } from "@/components/analytics";
+import { SkipToContent } from "@/components/skip-to-content";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://browseai.online"),
-  title: {
-    default: "BrowseAI Online",
-    template: "%s • BrowseAI Online",
-  },
+  title: { default: "BrowseAI Online", template: "%s • BrowseAI Online" },
   description:
     "Discover and explore AI tools by category on BrowseAI Online. Browse 20+ categories, explore tools, and find the right AI for you.",
   openGraph: {
@@ -16,7 +15,7 @@ export const metadata: Metadata = {
       "Discover and explore AI tools by category on BrowseAI Online. Browse 20+ categories, explore tools, and find the right AI for you.",
     url: "https://browseai.online",
     siteName: "BrowseAI Online",
-    images: ["/opengraph-image"], // auto from app/opengraph-image.tsx
+    images: ["/opengraph-image"],
     locale: "en_US",
     type: "website",
   },
@@ -24,21 +23,20 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     site: "@browseai_online",
     creator: "@browseai_online",
-    images: ["/twitter-image"], // auto from app/twitter-image.tsx
+    images: ["/twitter-image"],
   },
   robots: { index: true, follow: true },
-  icons: {
-    icon: "/icon.svg",
-    shortcut: "/icon.svg",
-    apple: "/icon.svg",
-  },
+  manifest: "/manifest.webmanifest", // served from app/manifest.ts
+  alternates: { canonical: "https://browseai.online" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body className="min-h-screen bg-background text-foreground antialiased">
+        <SkipToContent />
         {children}
+        <Analytics />
       </body>
     </html>
   );
