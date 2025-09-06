@@ -1,22 +1,23 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import Link from "next/link"
-import { Menu, X, User, LogIn } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { ThemeToggle } from "@/components/theme-toggle"
-import { useAuth } from "@/components/auth/auth-provider"
+import { useState } from "react";
+import Link from "next/link";
+import { Menu, X, User, LogIn } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { useAuth } from "@/components/auth/auth-provider";
 
 export function NavigationHeader() {
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const { isAuthenticated, user, logout } = useAuth()
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { user, logout } = useAuth();
+  const isAuthenticated = !!user;
 
   const navigation = [
     { name: "Home", href: "/" },
     { name: "Browse Tools", href: "/#tools" },
     { name: "Categories", href: "/#categories" },
     { name: "Submit Tool", href: "/submit" },
-  ]
+  ];
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -74,7 +75,12 @@ export function NavigationHeader() {
             )}
 
             {/* Mobile Menu Button */}
-            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setIsMenuOpen(!isMenuOpen)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden"
+              onClick={() => setIsMenuOpen((v) => !v)}
+            >
               {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </Button>
           </div>
@@ -99,5 +105,5 @@ export function NavigationHeader() {
         )}
       </div>
     </header>
-  )
+  );
 }
