@@ -6,32 +6,73 @@ on:
     - cron: "*/5 * * * *"
     # Topics cron: daily at 03:00 UTC
     - cron: "0 3 * * *"
-  # Allows you to run it manually from the Actions tab
+  # Manual run from Actions tab
   workflow_dispatch: {}
 
 jobs:
   run-posts:
-    # Run when triggered manually OR when the cron expression contains "*/5"
+    # avoid overlapping runs for posts
+    concurrency: posts-sync
+    # run on manual trigger OR the */5 cron
     if: github.event_name == 'workflow_dispatch' || contains(github.event.schedule, '*/5')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Optional: set this repo secret if you want Slack alerts on failures
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      URL: "https://www.browseai.online/api/ph/sync?token=${{ secrets.CRON_SECRET }}&pages=6&size=25&topics=0&delay=800"
     steps:
-      - name: Call /api/ph/sync (posts-only fast backfill)
+      - name: Call /api/ph/sync (posts-only fast backfill) with retry
+        id: posts_sync
         run: |
           set -e
-          URL="https://www.browseai.online/api/ph/sync?token=${{ secrets.CRON_SECRET }}&pages=6&size=25&topics=0&delay=800"
           echo "GET $URL"
-          curl -sS -L --fail-with-body -D - "$URL"
-          echo
+          for i in 1 2 3; do
+            if curl -sS -L --fail-with-body -D - "$URL"; then
+              echo "Sync succeeded on attempt $i"; exit 0
+            else
+              echo "Attempt $i failed; retrying in 10s..." >&2
+              sleep 10
+            fi
+          done
+          echo "All retries failed" >&2
+          exit 1
+
+      - name: Notify Slack on failure (optional)
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        run: |
+          payload=$(jq -n --arg text ":warning: *Posts sync failed* on $GITHUB_REPOSITORY (run: $GITHUB_RUN_NUMBER). See $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" '{text: $text}')
+          curl -sS -X POST -H 'Content-type: application/json' --data "$payload" "$SLACK_WEBHOOK_URL" || true
 
   run-topics:
-    # Run when triggered manually OR when the cron expression equals the daily one
+    # avoid overlapping runs for topics
+    concurrency: topics-sync
+    # run on manual trigger OR the daily cron
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 3 * * *'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      URL: "https://www.browseai.online/api/ph/sync?token=${{ secrets.CRON_SECRET }}&pages=2&size=20&topics=1&delay=1200"
     steps:
-      - name: Call /api/ph/sync (daily topics enrichment)
+      - name: Call /api/ph/sync (daily topics enrichment) with retry
+        id: topics_sync
         run: |
           set -e
-          URL="https://www.browseai.online/api/ph/sync?token=${{ secrets.CRON_SECRET }}&pages=2&size=20&topics=1&delay=1200"
           echo "GET $URL"
-          curl -sS -L --fail-with-body -D - "$URL"
-          echo
+          for i in 1 2 3; do
+            if curl -sS -L --fail-with-body -D - "$URL"; then
+              echo "Sync succeeded on attempt $i"; exit 0
+            else
+              echo "Attempt $i failed; retrying in 10s..." >&2
+              sleep 10
+            fi
+          done
+          echo "All retries failed" >&2
+          exit 1
+
+      - name: Notify Slack on failure (optional)
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        run: |
+          payload=$(jq -n --arg text ":warning: *Topics sync failed* on $GITHUB_REPOSITORY (run: $GITHUB_RUN_NUMBER). See $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" '{text: $text}')
+          curl -sS -X POST -H 'Content-type: application/json' --data "$payload" "$SLACK_WEBHOOK_URL" || true
