@@ -1,12 +1,12 @@
 {
   "crons": [
     {
-      "path": "/api/ph/sync-cron-posts",
-      "schedule": "*/5 * * * *"
+      "path": "/api/ph/sync?pages=6&size=25&topics=0&delay=1200",
+      "schedule": "*/5 * * * *"   // every 5 minutes
     },
     {
-      "path": "/api/ph/sync-cron-topics",
-      "schedule": "0 3 * * *"
+      "path": "/api/ph/sync?pages=6&size=25&topics=1&delay=1200",
+      "schedule": "0 3 * * *"     // every day at 03:00
     }
   ]
 }
