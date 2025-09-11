@@ -2,31 +2,36 @@ name: ProductHunt Sync Cron
 
 on:
   schedule:
-    - cron: "*/5 * * * *"    # posts every 5 minutes (UTC)
-    - cron: "0 3 * * *"      # topics daily 03:00 UTC
+    # Posts cron: every 5 minutes (UTC)
+    - cron: "*/5 * * * *"
+    # Topics cron: daily at 03:00 UTC
+    - cron: "0 3 * * *"
+  # Allows you to run it manually from the Actions tab
   workflow_dispatch: {}
 
 jobs:
   run-posts:
+    # Run when triggered manually OR when the cron expression contains "*/5"
     if: github.event_name == 'workflow_dispatch' || contains(github.event.schedule, '*/5')
     runs-on: ubuntu-latest
     steps:
       - name: Call /api/ph/sync (posts-only fast backfill)
         run: |
           set -e
-          echo "Hitting posts sync..."
-          curl -sS -D - \
-            "${{ secrets.PROD_DOMAIN }}/api/ph/sync?token=${{ secrets.CRON_SECRET }}&pages=6&size=25&topics=0&delay=800"
+          URL="https://www.browseai.online/api/ph/sync?token=${{ secrets.CRON_SECRET }}&pages=6&size=25&topics=0&delay=800"
+          echo "GET $URL"
+          curl -sS -L --fail-with-body -D - "$URL"
           echo
 
   run-topics:
-    if: github.event_name == 'workflow_dispatch' || endsWith(github.event.schedule, '0 3 * * *')
+    # Run when triggered manually OR when the cron expression equals the daily one
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 3 * * *'
     runs-on: ubuntu-latest
     steps:
       - name: Call /api/ph/sync (daily topics enrichment)
         run: |
           set -e
-          echo "Hitting topics sync..."
-          curl -sS -D - \
-            "${{ secrets.PROD_DOMAIN }}/api/ph/sync?token=${{ secrets.CRON_SECRET }}&pages=2&size=20&topics=1&delay=1200"
+          URL="https://www.browseai.online/api/ph/sync?token=${{ secrets.CRON_SECRET }}&pages=2&size=20&topics=1&delay=1200"
+          echo "GET $URL"
+          curl -sS -L --fail-with-body -D - "$URL"
           echo
