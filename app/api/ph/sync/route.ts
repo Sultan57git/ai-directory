@@ -66,7 +66,6 @@ async function fetchPH(after: string | undefined, includeTopics: boolean, first:
   catch (e: any) { return { ok: false as const, status: 500, error: `PH JSON parse failed: ${e?.message}` }; }
 
   if (json?.errors?.length) {
-    // complexity/rate limits show up here
     return { ok: false as const, status: 429, error: `PH GraphQL error: ${JSON.stringify(json.errors)}` };
   }
 
@@ -100,13 +99,23 @@ function unauthorized(req: Request) {
   return expected && incoming !== expected;
 }
 
-/** GET for Vercel Cron (token in query), proxies to POST logic */
+function bearer(req: Request) {
+  const h = req.headers.get("authorization") || "";
+  return h.toLowerCase().startsWith("bearer ") ? h.slice(7).trim() : "";
+}
+
+/** GET: used by Vercel Cron. Accepts Authorization: Bearer <CRON_SECRET> OR ?token=<CRON_SECRET>.
+ *  Proxies to POST so the actual worker stays in one place. */
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const token = url.searchParams.get("token") || "";
-  if (process.env.CRON_SECRET && token !== process.env.CRON_SECRET) {
+  const headerToken = bearer(req);
+  const qsToken = url.searchParams.get("token") || "";
+  const expected = (process.env.CRON_SECRET || "").trim();
+
+  if (expected && headerToken !== expected && qsToken !== expected) {
     return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
   }
+
   const headers = new Headers({ "x-admin-key": process.env.ADMIN_API_KEY || "" });
   const proxy = new Request(req.url, { method: "POST", headers, body: "{}" });
   return POST(proxy);
@@ -122,14 +131,14 @@ export async function POST(req: Request) {
     const url = new URL(req.url);
 
     // Tunables
-    const PAGES = Math.min(Number(url.searchParams.get("pages") || 6), 200);  // how many pages this run
-    const DELAY = Math.max(Number(url.searchParams.get("delay") || 800), 0);  // ms between pages
-    const SIZE  = Math.max(10, Math.min(Number(url.searchParams.get("size") || 25), 50)); // per-page posts
+    const PAGES = Math.min(Number(url.searchParams.get("pages") || 6), 200);
+    const DELAY = Math.max(Number(url.searchParams.get("delay") || 800), 0);
+    const SIZE  = Math.max(10, Math.min(Number(url.searchParams.get("size") || 25), 50));
     const INCLUDE_TOPICS = ["1","true","yes"].includes((url.searchParams.get("topics")||"0").toLowerCase());
 
     const MAX_BACKOFF = 3;
 
-    // Read last cursor (resume point)
+    // Resume point
     const { data: state } = await supa
       .from("ph_sync_state")
       .select("last_cursor")
@@ -140,7 +149,7 @@ export async function POST(req: Request) {
     let total = 0;
 
     for (let i = 0; i < PAGES; i++) {
-      // fetch one page with backoff on complexity/rate
+      // fetch one page (with backoff on complexity/rate)
       let tries = 0;
       let got: Awaited<ReturnType<typeof fetchPH>>;
       while (true) {
@@ -192,7 +201,7 @@ export async function POST(req: Request) {
         total += toolRows.length;
       }
 
-      // advance cursor & persist
+      // advance & persist cursor
       if (!pageInfo?.hasNextPage || !pageInfo?.endCursor) {
         after = undefined;
         await supa.from("ph_sync_state").upsert({
