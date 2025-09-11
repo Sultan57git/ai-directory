@@ -14,6 +14,7 @@ function supabaseAdmin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
+// Expanded: include topics
 const QUERY = `
 query FetchPosts($after: String) {
   posts(order: RANKING, after: $after, first: 50) {
@@ -29,6 +30,9 @@ query FetchPosts($after: String) {
         commentsCount
         createdAt
         thumbnail { url }
+        topics(first: 20) {
+          edges { node { id name slug } }
+        }
       }
     }
   }
@@ -38,7 +42,7 @@ query FetchPosts($after: String) {
 async function fetchPH(after?: string) {
   const token = process.env.PH_DEV_TOKEN;
   if (!token) {
-    return { ok: false, status: 500, error: "PH_DEV_TOKEN missing" };
+    return { ok: false, status: 500, error: "PH_DEV_TOKEN missing" as const };
   }
 
   const res = await fetch(PH_API, {
@@ -50,31 +54,33 @@ async function fetchPH(after?: string) {
     body: JSON.stringify({ query: QUERY, variables: { after } }),
   });
 
-  const text = await res.text(); // read once safely
+  const text = await res.text();
   if (!res.ok) {
-    return { ok: false, status: res.status, error: `PH error ${res.status}: ${text}` };
+    return { ok: false, status: res.status, error: `PH error ${res.status}: ${text}` as const };
   }
 
   let json: any = null;
   try { json = text ? JSON.parse(text) : null; }
   catch (e: any) {
-    return { ok: false, status: 500, error: `PH JSON parse failed: ${e?.message}` };
+    return { ok: false, status: 500, error: `PH JSON parse failed: ${e?.message}` as const };
   }
 
   const data = json?.data?.posts;
   if (!data) {
     const err = json?.errors ? JSON.stringify(json.errors) : "no data.posts";
-    return { ok: false, status: 500, error: `PH GraphQL error: ${err}` };
+    return { ok: false, status: 500, error: `PH GraphQL error: ${err}` as const };
   }
 
-  return { ok: true, status: 200, data };
+  return { ok: true as const, status: 200, data };
 }
 
+// Map PH nodes -> tools table rows (ph_id as TEXT)
 function mapNodes(edges: any[]) {
   return edges.map((e: any) => {
     const n = e.node;
     return {
-      ph_id: Number(n.id),
+      source: "ph" as const,
+      ph_id: String(n.id),                              // TEXT
       name: n.name ?? null,
       tagline: n.tagline ?? null,
       slug: n.slug ?? null,
@@ -107,14 +113,16 @@ export async function POST(req: Request) {
   try {
     const supa = supabaseAdmin();
 
+    // Allow deeper pagination: /api/ph/sync?pages=60  -> 60 * 50 = 3000 posts
+    const url = new URL(req.url);
+    const PAGES = Math.min(Number(url.searchParams.get("pages") || 10), 200); // safety cap
+
     let after: string | undefined = undefined;
     let total = 0;
-    const MAX_PAGES = 10; // 50 * 10 = 500 posts per run
 
-    for (let i = 0; i < MAX_PAGES; i++) {
+    for (let i = 0; i < PAGES; i++) {
       const ph = await fetchPH(after);
       if (!ph.ok) {
-        // return early with a clear JSON error
         return NextResponse.json({ ok: false, error: ph.error }, { status: ph.status });
       }
 
@@ -123,20 +131,49 @@ export async function POST(req: Request) {
         edges: any[];
       };
 
-      const rows = mapNodes(edges || []);
-      if (rows.length) {
-        const { error } = await supa.from("tools").upsert(rows, { onConflict: "ph_id" });
-        if (error) {
-          return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      const toolRows = mapNodes(edges || []);
+      if (toolRows.length) {
+        const { error: toolsErr } = await supa
+          .from("tools")
+          .upsert(toolRows, { onConflict: "ph_id" }); // PH upsert key
+        if (toolsErr) {
+          return NextResponse.json({ ok: false, error: toolsErr.message }, { status: 500 });
         }
-        total += rows.length;
+
+        // Build topic rows aligned by index to edges
+        const topicRows: { ph_id: string; topic_slug: string; topic_name: string }[] = [];
+        for (let idx = 0; idx < (edges || []).length; idx++) {
+          const n = edges[idx]?.node;
+          const tEdges = n?.topics?.edges ?? [];
+          for (const te of tEdges) {
+            const tn = te?.node;
+            if (tn?.slug && tn?.name) {
+              topicRows.push({
+                ph_id: toolRows[idx].ph_id,
+                topic_slug: tn.slug,
+                topic_name: tn.name,
+              });
+            }
+          }
+        }
+        if (topicRows.length) {
+          // composite conflict key
+          const { error: topicsErr } = await supa
+            .from("tool_topics")
+            .upsert(topicRows, { onConflict: "ph_id,topic_slug" });
+          if (topicsErr) {
+            return NextResponse.json({ ok: false, error: topicsErr.message }, { status: 500 });
+          }
+        }
+
+        total += toolRows.length;
       }
 
       if (!pageInfo?.hasNextPage || !pageInfo?.endCursor) break;
       after = pageInfo.endCursor ?? undefined;
     }
 
-    return NextResponse.json({ ok: true, upserted: total });
+    return NextResponse.json({ ok: true, upserted: total, pages: PAGES });
   } catch (err: any) {
     const msg = err?.message ?? String(err);
     console.error("ph/sync error:", msg);
