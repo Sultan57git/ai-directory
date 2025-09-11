@@ -1,6 +1,12 @@
 {
   "crons": [
-    { "path": "/api/ph/sync-cron-posts",  "schedule": "*/5 * * * *" },
-    { "path": "/api/ph/sync-cron-topics", "schedule": "0 3 * * *" }
+    {
+      "path": "/api/ph/sync-cron-posts",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/ph/sync-cron-topics",
+      "schedule": "0 3 * * *"
+    }
   ]
 }
