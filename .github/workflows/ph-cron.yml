@@ -1,0 +1,35 @@
+name: ProductHunt Sync Cron
+
+on:
+  schedule:
+    # Posts cron: every 5 minutes
+    - cron: "*/5 * * * *"
+    # Topics cron: daily at 03:00 UTC
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}  # lets you run it manually from the Actions tab
+
+jobs:
+  run-posts:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.schedule, '*/5')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/ph/sync-cron-posts
+        run: |
+          set -e
+          echo "Hitting posts cron..."
+          curl -sS -D - \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.PROD_DOMAIN }}/api/ph/sync-cron-posts"
+          echo
+  run-topics:
+    if: github.event_name == 'workflow_dispatch' || endsWith(github.event.schedule, '0 3 * * *')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/ph/sync-cron-topics
+        run: |
+          set -e
+          echo "Hitting topics cron..."
+          curl -sS -D - \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.PROD_DOMAIN }}/api/ph/sync-cron-topics"
+          echo
