@@ -2,34 +2,31 @@ name: ProductHunt Sync Cron
 
 on:
   schedule:
-    # Posts cron: every 5 minutes
-    - cron: "*/5 * * * *"
-    # Topics cron: daily at 03:00 UTC
-    - cron: "0 3 * * *"
-  workflow_dispatch: {}  # lets you run it manually from the Actions tab
+    - cron: "*/5 * * * *"    # posts every 5 minutes (UTC)
+    - cron: "0 3 * * *"      # topics daily 03:00 UTC
+  workflow_dispatch: {}
 
 jobs:
   run-posts:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.schedule, '*/5')
     runs-on: ubuntu-latest
     steps:
-      - name: Call /api/ph/sync-cron-posts
+      - name: Call /api/ph/sync (posts-only fast backfill)
         run: |
           set -e
-          echo "Hitting posts cron..."
+          echo "Hitting posts sync..."
           curl -sS -D - \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.PROD_DOMAIN }}/api/ph/sync-cron-posts"
+            "${{ secrets.PROD_DOMAIN }}/api/ph/sync?token=${{ secrets.CRON_SECRET }}&pages=6&size=25&topics=0&delay=800"
           echo
+
   run-topics:
     if: github.event_name == 'workflow_dispatch' || endsWith(github.event.schedule, '0 3 * * *')
     runs-on: ubuntu-latest
     steps:
-      - name: Call /api/ph/sync-cron-topics
+      - name: Call /api/ph/sync (daily topics enrichment)
         run: |
           set -e
-          echo "Hitting topics cron..."
+          echo "Hitting topics sync..."
           curl -sS -D - \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.PROD_DOMAIN }}/api/ph/sync-cron-topics"
+            "${{ secrets.PROD_DOMAIN }}/api/ph/sync?token=${{ secrets.CRON_SECRET }}&pages=2&size=20&topics=1&delay=1200"
           echo
