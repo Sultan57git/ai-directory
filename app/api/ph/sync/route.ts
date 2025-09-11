@@ -12,67 +12,69 @@ function supabaseAdmin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-// Reduced topics(first:10) to lower complexity per page
-const QUERY = `
-query FetchPosts($after: String) {
-  posts(order: RANKING, after: $after, first: 50) {
-    pageInfo { hasNextPage endCursor }
-    edges {
-      node {
-        id
-        name
-        tagline
-        slug
-        website
-        votesCount
-        commentsCount
-        createdAt
-        thumbnail { url }
+function buildQuery(includeTopics: boolean, first: number) {
+  const topicsBlock = includeTopics
+    ? `
         topics(first: 10) {
           edges { node { id name slug } }
         }
+      `
+    : ``;
+
+  return `
+    query FetchPosts($after: String) {
+      posts(order: RANKING, after: $after, first: ${first}) {
+        pageInfo { hasNextPage endCursor }
+        edges {
+          node {
+            id
+            name
+            tagline
+            slug
+            website
+            votesCount
+            commentsCount
+            createdAt
+            thumbnail { url }
+            ${topicsBlock}
+          }
+        }
       }
     }
-  }
-}
-`;
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
+  `;
 }
 
-async function fetchPH(after?: string) {
+function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
+
+async function fetchPH(after: string | undefined, includeTopics: boolean, first: number) {
   const token = process.env.PH_DEV_TOKEN!;
+  const QUERY = buildQuery(includeTopics, first);
+
   const res = await fetch(PH_API, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ query: QUERY, variables: { after } }),
   });
-  const text = await res.text();
 
+  const text = await res.text();
   if (!res.ok) {
     return { ok: false as const, status: res.status, error: `PH error ${res.status}: ${text}` };
   }
 
   let json: any = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch (e: any) {
-    return { ok: false as const, status: 500, error: `PH JSON parse failed: ${e?.message}` };
-  }
+  try { json = text ? JSON.parse(text) : null; }
+  catch (e: any) { return { ok: false as const, status: 500, error: `PH JSON parse failed: ${e?.message}` }; }
 
   if (json?.errors?.length) {
-    // Treat as rate/complexity to trigger backoff
+    // complexity/rate limits show up here
     return { ok: false as const, status: 429, error: `PH GraphQL error: ${JSON.stringify(json.errors)}` };
   }
 
   const data = json?.data?.posts;
   if (!data) return { ok: false as const, status: 500, error: "PH GraphQL error: no data.posts" };
-
   return { ok: true as const, status: 200, data };
 }
 
-// Map to DB rows (ph_id as TEXT)
 function mapNodes(edges: any[]) {
   return edges.map((e: any) => {
     const n = e.node;
@@ -98,14 +100,13 @@ function unauthorized(req: Request) {
   return expected && incoming !== expected;
 }
 
-/** Allow Vercel Cron (GET) to trigger same logic as POST via ?token=CRON_SECRET */
+/** GET for Vercel Cron (token in query), proxies to POST logic */
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const token = url.searchParams.get("token") || "";
   if (process.env.CRON_SECRET && token !== process.env.CRON_SECRET) {
     return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
   }
-  // Reuse POST code so behavior is identical
   const headers = new Headers({ "x-admin-key": process.env.ADMIN_API_KEY || "" });
   const proxy = new Request(req.url, { method: "POST", headers, body: "{}" });
   return POST(proxy);
@@ -118,14 +119,17 @@ export async function POST(req: Request) {
 
   try {
     const supa = supabaseAdmin();
-
-    // Controls
     const url = new URL(req.url);
-    const PAGES = Math.min(Number(url.searchParams.get("pages") || 6), 200); // small batch
-    const DELAY = Math.max(Number(url.searchParams.get("delay") || 800), 0); // ms between pages
+
+    // Tunables
+    const PAGES = Math.min(Number(url.searchParams.get("pages") || 6), 200);  // how many pages this run
+    const DELAY = Math.max(Number(url.searchParams.get("delay") || 800), 0);  // ms between pages
+    const SIZE  = Math.max(10, Math.min(Number(url.searchParams.get("size") || 25), 50)); // per-page posts
+    const INCLUDE_TOPICS = ["1","true","yes"].includes((url.searchParams.get("topics")||"0").toLowerCase());
+
     const MAX_BACKOFF = 3;
 
-    // 1) READ last cursor (resume point)
+    // Read last cursor (resume point)
     const { data: state } = await supa
       .from("ph_sync_state")
       .select("last_cursor")
@@ -136,11 +140,11 @@ export async function POST(req: Request) {
     let total = 0;
 
     for (let i = 0; i < PAGES; i++) {
-      // 2) Fetch one page with backoff
+      // fetch one page with backoff on complexity/rate
       let tries = 0;
       let got: Awaited<ReturnType<typeof fetchPH>>;
       while (true) {
-        got = await fetchPH(after);
+        got = await fetchPH(after, INCLUDE_TOPICS, SIZE);
         if (got.ok) break;
 
         const msg = String(got.error || "");
@@ -159,50 +163,46 @@ export async function POST(req: Request) {
 
       const toolRows = mapNodes(edges || []);
       if (toolRows.length) {
-        const { error: toolsErr } = await supa.from("tools").upsert(toolRows, { onConflict: "ph_id" });
-        if (toolsErr) return NextResponse.json({ ok: false, error: toolsErr.message }, { status: 500 });
+        const { error: tErr } = await supa.from("tools").upsert(toolRows, { onConflict: "ph_id" });
+        if (tErr) return NextResponse.json({ ok: false, error: tErr.message }, { status: 500 });
 
-        // 3) Upsert topics
-        const topicRows: { ph_id: string; topic_slug: string; topic_name: string }[] = [];
-        for (let idx = 0; idx < (edges || []).length; idx++) {
-          const n = edges[idx]?.node;
-          const tEdges = n?.topics?.edges ?? [];
-          for (const te of tEdges) {
-            const tn = te?.node;
-            if (tn?.slug && tn?.name) {
-              topicRows.push({
-                ph_id: toolRows[idx].ph_id,
-                topic_slug: tn.slug,
-                topic_name: tn.name,
-              });
+        if (INCLUDE_TOPICS) {
+          const topicRows: { ph_id: string; topic_slug: string; topic_name: string }[] = [];
+          for (let idx = 0; idx < (edges || []).length; idx++) {
+            const tEdges = edges[idx]?.node?.topics?.edges ?? [];
+            for (const te of tEdges) {
+              const tn = te?.node;
+              if (tn?.slug && tn?.name) {
+                topicRows.push({
+                  ph_id: toolRows[idx].ph_id,
+                  topic_slug: tn.slug,
+                  topic_name: tn.name,
+                });
+              }
             }
           }
-        }
-        if (topicRows.length) {
-          const { error: topicsErr } = await supa
-            .from("tool_topics")
-            .upsert(topicRows, { onConflict: "ph_id,topic_slug" });
-          if (topicsErr) return NextResponse.json({ ok: false, error: topicsErr.message }, { status: 500 });
+          if (topicRows.length) {
+            const { error: tpErr } = await supa
+              .from("tool_topics")
+              .upsert(topicRows, { onConflict: "ph_id,topic_slug" });
+            if (tpErr) return NextResponse.json({ ok: false, error: tpErr.message }, { status: 500 });
+          }
         }
 
         total += toolRows.length;
       }
 
-      // 4) Advance cursor & persist
+      // advance cursor & persist
       if (!pageInfo?.hasNextPage || !pageInfo?.endCursor) {
-        after = undefined; // reached the end; next run restarts from newest
+        after = undefined;
         await supa.from("ph_sync_state").upsert({
-          id: true,
-          last_cursor: null,
-          updated_at: new Date().toISOString(),
+          id: true, last_cursor: null, updated_at: new Date().toISOString(),
         });
         break;
       } else {
         after = pageInfo.endCursor ?? undefined;
         await supa.from("ph_sync_state").upsert({
-          id: true,
-          last_cursor: after,
-          updated_at: new Date().toISOString(),
+          id: true, last_cursor: after, updated_at: new Date().toISOString(),
         });
       }
 
@@ -210,11 +210,8 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({
-      ok: true,
-      upserted: total,
-      pages: PAGES,
-      delay_ms: DELAY,
-      next_cursor: after || null,
+      ok: true, upserted: total, pages: PAGES, size: SIZE, topics: INCLUDE_TOPICS, delay_ms: DELAY,
+      next_cursor: after || null
     });
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message || String(err) }, { status: 500 });
