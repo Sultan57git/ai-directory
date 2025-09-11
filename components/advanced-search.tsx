@@ -1,33 +1,40 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Search, Sparkles, Filter, X, Zap } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Slider } from "@/components/ui/slider"
+import { useState } from "react";
+import { Search, Sparkles, Filter, X, Zap } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
+
+type FiltersState = {
+  category: string;
+  pricing: string;
+  rating: number[];      // Slider expects number[]
+  features: string[];
+};
 
 export function AdvancedSearch() {
-  const [searchQuery, setSearchQuery] = useState("")
-  const [showAdvanced, setShowAdvanced] = useState(false)
-  const [filters, setFilters] = useState({
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
+  const [filters, setFilters] = useState<FiltersState>({
     category: "any",
     pricing: "any",
     rating: [4],
-    features: [] as string[],
-  })
+    features: [],
+  });
 
-  const aiSuggestions = [
+  const aiSuggestions: string[] = [
     "AI writing tools for marketing content",
     "Code completion tools like GitHub Copilot",
     "Image generators for social media",
     "Voice synthesis for podcasts",
     "Data analysis tools with AI insights",
-  ]
+  ];
 
-  const popularFeatures = [
+  const popularFeatures: string[] = [
     "API Integration",
     "Real-time Processing",
     "Multi-language",
@@ -36,7 +43,7 @@ export function AdvancedSearch() {
     "Enterprise Ready",
     "Mobile App",
     "Browser Extension",
-  ]
+  ];
 
   const handleFeatureToggle = (feature: string) => {
     setFilters((prev) => ({
@@ -44,8 +51,8 @@ export function AdvancedSearch() {
       features: prev.features.includes(feature)
         ? prev.features.filter((f) => f !== feature)
         : [...prev.features, feature],
-    }))
-  }
+    }));
+  };
 
   return (
     <div className="space-y-4">
@@ -111,7 +118,7 @@ export function AdvancedSearch() {
                 <label className="text-sm font-medium mb-2 block">Category</label>
                 <Select
                   value={filters.category}
-                  onValueChange={(value) => setFilters((prev) => ({ ...prev, category: value }))}
+                  onValueChange={(value: string) => setFilters((prev) => ({ ...prev, category: value }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Any category" />
@@ -132,7 +139,7 @@ export function AdvancedSearch() {
                 <label className="text-sm font-medium mb-2 block">Pricing</label>
                 <Select
                   value={filters.pricing}
-                  onValueChange={(value) => setFilters((prev) => ({ ...prev, pricing: value }))}
+                  onValueChange={(value: string) => setFilters((prev) => ({ ...prev, pricing: value }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Any pricing" />
@@ -148,10 +155,14 @@ export function AdvancedSearch() {
 
               {/* Rating Filter */}
               <div>
-                <label className="text-sm font-medium mb-2 block">Minimum Rating: {filters.rating[0]}.0+</label>
+                <label className="text-sm font-medium mb-2 block">
+                  Minimum Rating: {filters.rating[0]}.0+
+                </label>
                 <Slider
                   value={filters.rating}
-                  onValueChange={(value) => setFilters((prev) => ({ ...prev, rating: value }))}
+                  onValueChange={(value: number[]) =>
+                    setFilters((prev) => ({ ...prev, rating: value }))
+                  }
                   max={5}
                   min={1}
                   step={0.5}
@@ -164,7 +175,9 @@ export function AdvancedSearch() {
                 <Button
                   variant="outline"
                   className="w-full bg-transparent"
-                  onClick={() => setFilters({ category: "any", pricing: "any", rating: [4], features: [] })}
+                  onClick={() =>
+                    setFilters({ category: "any", pricing: "any", rating: [4], features: [] })
+                  }
                 >
                   Clear All
                 </Button>
@@ -225,5 +238,5 @@ export function AdvancedSearch() {
         </Card>
       )}
     </div>
-  )
+  );
 }
