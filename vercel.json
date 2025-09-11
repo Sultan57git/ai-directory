@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/ph/sync?pages=6&size=20&topics=0&delay=800&token=@CRON_SECRET",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/ph/sync?pages=2&size=20&topics=1&delay=1200&token=@CRON_SECRET",
+      "schedule": "0 3 * * *"
+    }
+  ]
+}
