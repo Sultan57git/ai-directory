@@ -1,21 +1,58 @@
 # .github/workflows/ph-backfill.yml
 name: PH Backfill
+
 on:
-  workflow_dispatch: {}            # still lets you run it by hand
+  # Manual run with inputs (you'll see these fields in the UI)
+  workflow_dispatch:
+    inputs:
+      pages:
+        description: 'Pages to fetch (try 200–2000 if quotas allow)'
+        required: true
+        default: '200'
+      size:
+        description: 'Items per page (<= 50)'
+        required: true
+        default: '50'
+      topics:
+        description: 'Include topics? 1 = yes, 0 = no'
+        required: true
+        default: '1'
+      delay:
+        description: 'Delay (ms) between pages (helps avoid rate limits)'
+        required: true
+        default: '1200'
+
+  # Automatic backfill every 6 hours (UTC)
   schedule:
-    - cron: "0 */6 * * *"          # runs every 6 hours (UTC)
+    - cron: '0 */6 * * *'
 
 jobs:
   backfill:
     runs-on: ubuntu-latest
-    concurrency: ph-backfill       # prevents overlap
+    concurrency:
+      group: ph-backfill
+      cancel-in-progress: false
+
     steps:
-      - name: Call sync backfill
+      - name: Build URL (use inputs if provided; else defaults)
+        id: vars
         run: |
-          URL="${{ secrets.PROD_DOMAIN }}/api/ph/sync?pages=200&size=50&topics=1&delay=1200"
-          echo "GET $URL"
+          PAGES="${{ github.event.inputs.pages || '200' }}"
+          SIZE="${{ github.event.inputs.size || '50' }}"
+          TOPICS="${{ github.event.inputs.topics || '1' }}"
+          DELAY="${{ github.event.inputs.delay || '1200' }}"
+          echo "url=${{ secrets.PROD_DOMAIN }}/api/ph/sync?pages=${PAGES}&size=${SIZE}&topics=${TOPICS}&delay=${DELAY}" >> "$GITHUB_OUTPUT"
+
+      - name: Call sync backfill (with retries)
+        env:
+          URL: ${{ steps.vars.outputs.url }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "GET ${URL}"
           for i in 1 2 3; do
             curl -sS -L --fail-with-body -D - \
-              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-              "$URL" && { echo "✅ Backfill succeeded"; break; } || { echo "Retry $i"; sleep 10; }
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              "${URL}" && { echo "✅ Backfill succeeded"; exit 0; }
+            echo "Retry $i"; sleep 10
           done
+          echo "❌ Backfill failed after 3 attempts"; exit 1
