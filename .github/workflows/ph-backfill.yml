@@ -4,27 +4,25 @@ on:
   workflow_dispatch:
     inputs:
       total_pages:
-        description: "Total pages to pull this run (pages × size ≈ rows)"
-        default: "1000"
+        description: "How many pages to fetch in total (each page has 'size' posts)"
         required: true
+        default: "2000"       # ~100k posts with size=50
       chunk_pages:
-        description: "Pages per request (keeps PH complexity < 500k)"
-        default: "80"
+        description: "Pages per API call (keep small to avoid PH complexity caps)"
         required: true
+        default: "20"         # 20 x 50 = 1,000 posts per call → safe
       size:
-        description: "Rows per page (max 50)"
+        description: "Posts per page (<= 50)"
+        required: true
         default: "50"
-        required: true
-      topics:
-        description: "Include topics? 1=yes, 0=no (set 0 if you still hit limits)"
-        default: "1"
-        required: true
       delay:
-        description: "Delay (ms) between pages inside each request"
-        default: "1200"
+        description: "Delay (ms) between pages inside the API (endpoint internal pacing)"
         required: true
-  schedule:
-    - cron: "0 */6 * * *"   # optional: run every 6 hours
+        default: "1200"
+      topics:
+        description: "Include topics? 0=posts only (safer); 1=include topics (heavier)"
+        required: true
+        default: "0"
 
 jobs:
   backfill:
@@ -33,64 +31,51 @@ jobs:
     steps:
       - name: Backfill in chunks (with retries)
         env:
-          BASE:   ${{ secrets.PROD_DOMAIN }}
-          TOKEN:  ${{ secrets.CRON_SECRET }}
-          TOTAL:  ${{ github.event.inputs.total_pages }}
-          CHUNK:  ${{ github.event.inputs.chunk_pages }}
-          SIZE:   ${{ github.event.inputs.size }}
+          PROD_DOMAIN: ${{ secrets.PROD_DOMAIN }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TOTAL: ${{ github.event.inputs.total_pages }}
+          CHUNK: ${{ github.event.inputs.chunk_pages }}
+          SIZE: ${{ github.event.inputs.size }}
+          DELAY: ${{ github.event.inputs.delay }}
           TOPICS: ${{ github.event.inputs.topics }}
-          DELAY:  ${{ github.event.inputs.delay }}
         run: |
           set -euo pipefail
+          echo "Domain: $PROD_DOMAIN"
+          echo "Total pages: $TOTAL | Chunk pages: $CHUNK | Size: $SIZE | Topics: $TOPICS | Delay: $DELAY"
 
-          base=${BASE:-}
-          token=${TOKEN:-}
-          total=${TOTAL:-1000}
-          chunk=${CHUNK:-80}
-          size=${SIZE:-50}
-          topics=${TOPICS:-1}
-          delay=${DELAY:-1200}
+          # How many chunked calls we need
+          CALLS=$(( (TOTAL + CHUNK - 1) / CHUNK ))
+          echo "Planned API calls: $CALLS"
 
-          if [ -z "$base" ] || [ -z "$token" ]; then
-            echo "❌ Missing secrets. Set PROD_DOMAIN and CRON_SECRET in repo Settings → Secrets and variables → Actions."
-            exit 1
-          fi
+          for ((i=1; i<=CALLS; i++)); do
+            URL="${PROD_DOMAIN}/api/ph/sync?pages=${CHUNK}&size=${SIZE}&topics=${TOPICS}&delay=${DELAY}"
+            echo ""
+            echo "▶ Call $i/$CALLS  →  GET $URL"
 
-          # how many requests we’ll make
-          runs=$(( (total + chunk - 1) / chunk ))
-          echo "Backfilling $total pages in $runs chunk(s) of $chunk pages each (size=$size, topics=$topics, delay=${delay}ms)."
-
-          for i in $(seq 1 $runs); do
-            url="$base/api/ph/sync?pages=$chunk&size=$size&topics=$topics&delay=$delay"
-            echo "▶️  Chunk $i/$runs → $url"
-
-            success=0
+            # Up to 3 retries per chunk
             for attempt in 1 2 3; do
               set +e
-              body=$(curl -sS -L --fail-with-body \
-                       -H "Authorization: Bearer $token" \
-                       "$url")
-              code=$?
+              RESP=$(curl -sS -L --fail-with-body -D - \
+                -H "Authorization: Bearer ${CRON_SECRET}" \
+                "$URL")
+              CODE=$?
               set -e
 
-              if [ $code -eq 0 ] && echo "$body" | grep -q '"ok":true'; then
-                echo "✅ Chunk $i succeeded: $(echo "$body" | tr -d '\n')"
-                success=1
+              if [ $CODE -eq 0 ]; then
+                echo "✅ Chunk $i succeeded"
                 break
               else
-                echo "⚠️  Attempt $attempt failed (exit $code). Response:"
-                echo "$body"
-                sleep $((10 * attempt))
+                echo "⚠️  Chunk $i failed (attempt $attempt). Sleeping 10s and retrying…"
+                sleep 10
+              fi
+
+              if [ $attempt -eq 3 ]; then
+                echo "❌ Chunk $i failed after 3 attempts."
+                echo "$RESP"
+                exit 1
               fi
             done
-
-            if [ $success -ne 1 ]; then
-              echo "❌ Chunk $i failed after 3 attempts. Stopping."
-              exit 1
-            fi
-
-            # brief pause between chunks (be nice to PH)
-            sleep 5
           done
 
-          echo "🎯 Backfill completed successfully."
+          echo ""
+          echo "🎉 Backfill completed."
