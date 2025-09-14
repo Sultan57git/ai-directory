@@ -1,40 +1,74 @@
 name: PH Topics Enrichment
 
 on:
-  workflow_dispatch: {}
-  schedule:
-    - cron: "0 3 * * *"     # daily at 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      total_pages:
+        description: "Total pages to enrich"
+        required: true
+        default: "400"
+      chunk_pages:
+        description: "Pages per call (keep very small with topics=1)"
+        required: true
+        default: "10"         # 10 x 40 = 400 posts per call (safer with topics)
+      size:
+        description: "Posts per page (<= 50)"
+        required: true
+        default: "40"         # 40 keeps complexity a bit lower with topics=1
+      delay:
+        description: "Delay (ms) between pages inside the API"
+        required: true
+        default: "1200"
 
 jobs:
-  enrich:
+  enrich_topics:
     runs-on: ubuntu-latest
     concurrency: ph-topics
-    env:
-      BASE: ${{ secrets.PROD_DOMAIN }}/api/ph/sync
-      TOKEN: ${{ secrets.CRON_SECRET }}
-      TOTAL_PAGES: "200"    # how many pages to enrich per run
-      CHUNK: "10"           # small chunks to avoid complexity spikes
-      SIZE: "15"            # small page size because topics=1 is costly
-      DELAY: "1500"         # 1.5s between pages on the server side
     steps:
-      - name: Enrich topics in safe chunks
-        shell: bash
+      - name: Enrich topics in chunks (with retries)
+        env:
+          PROD_DOMAIN: ${{ secrets.PROD_DOMAIN }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TOTAL: ${{ github.event.inputs.total_pages }}
+          CHUNK: ${{ github.event.inputs.chunk_pages }}
+          SIZE: ${{ github.event.inputs.size }}
+          DELAY: ${{ github.event.inputs.delay }}
         run: |
-          set -e
-          remain=$TOTAL_PAGES
-          while [ "$remain" -gt 0 ]; do
-            pages=$CHUNK
-            [ "$remain" -lt "$CHUNK" ] && pages=$remain
-            URL="${BASE}?pages=${pages}&size=${SIZE}&topics=1&delay=${DELAY}"
-            echo "GET $URL"
-            ok=0
-            for i in 1 2 3; do
-              out=$(curl -sS -L --fail-with-body -D - -H "Authorization: Bearer $TOKEN" "$URL" || true)
-              echo "$out" | tail -n 40
-              if echo "$out" | tr -d '\n' | grep -q '"ok":true'; then ok=1; break; fi
-              echo "⚠️  Chunk failed (attempt $i). Sleeping 15s…"; sleep 15
+          set -euo pipefail
+          echo "Domain: $PROD_DOMAIN"
+          echo "Total pages: $TOTAL | Chunk pages: $CHUNK | Size: $SIZE | Delay: $DELAY"
+
+          CALLS=$(( (TOTAL + CHUNK - 1) / CHUNK ))
+          echo "Planned API calls: $CALLS"
+
+          for ((i=1; i<=CALLS; i++)); do
+            URL="${PROD_DOMAIN}/api/ph/sync?pages=${CHUNK}&size=${SIZE}&topics=1&delay=${DELAY}"
+            echo ""
+            echo "▶ Call $i/$CALLS  →  GET $URL"
+
+            for attempt in 1 2 3; do
+              set +e
+              RESP=$(curl -sS -L --fail-with-body -D - \
+                -H "Authorization: Bearer ${CRON_SECRET}" \
+                "$URL")
+              CODE=$?
+              set -e
+
+              if [ $CODE -eq 0 ]; then
+                echo "✅ Chunk $i (topics) succeeded"
+                break
+              else
+                echo "⚠️  Chunk $i (topics) failed (attempt $attempt). Sleeping 10s and retrying…"
+                sleep 10
+              fi
+
+              if [ $attempt -eq 3 ]; then
+                echo "❌ Chunk $i (topics) failed after 3 attempts."
+                echo "$RESP"
+                exit 1
+              fi
             done
-            [ $ok -eq 1 ] || { echo "❌ Chunk failed after 3 attempts."; exit 1; }
-            remain=$((remain - pages))
           done
-          echo "✅ Topics enrichment pass completed."
+
+          echo ""
+          echo "🎉 Topics enrichment completed."
