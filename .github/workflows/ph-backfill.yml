@@ -1,21 +1,18 @@
 # .github/workflows/ph-backfill.yml
 name: PH Backfill
 on:
-  workflow_dispatch:
-    inputs:
-      pages:   { description: 'Pages',   default: '200', required: true }
-      size:    { description: 'Page size (max 50)', default: '50', required: true }
-      topics:  { description: 'Include topics? 1/0', default: '1', required: true }
-      delay:   { description: 'Delay ms between pages', default: '1200', required: true }
+  workflow_dispatch: {}            # still lets you run it by hand
+  schedule:
+    - cron: "0 */6 * * *"          # runs every 6 hours (UTC)
 
 jobs:
   backfill:
     runs-on: ubuntu-latest
-    concurrency: ph-backfill
+    concurrency: ph-backfill       # prevents overlap
     steps:
       - name: Call sync backfill
         run: |
-          URL="${{ secrets.PROD_DOMAIN }}/api/ph/sync?pages=${{ inputs.pages }}&size=${{ inputs.size }}&topics=${{ inputs.topics }}&delay=${{ inputs.delay }}"
+          URL="${{ secrets.PROD_DOMAIN }}/api/ph/sync?pages=200&size=50&topics=1&delay=1200"
           echo "GET $URL"
           for i in 1 2 3; do
             curl -sS -L --fail-with-body -D - \
