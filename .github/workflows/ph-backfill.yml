@@ -1,40 +1,96 @@
-name: PH Backfill (posts only)
+name: PH Backfill (chunked)
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      total_pages:
+        description: "Total pages to pull this run (pages × size ≈ rows)"
+        default: "1000"
+        required: true
+      chunk_pages:
+        description: "Pages per request (keeps PH complexity < 500k)"
+        default: "80"
+        required: true
+      size:
+        description: "Rows per page (max 50)"
+        default: "50"
+        required: true
+      topics:
+        description: "Include topics? 1=yes, 0=no (set 0 if you still hit limits)"
+        default: "1"
+        required: true
+      delay:
+        description: "Delay (ms) between pages inside each request"
+        default: "1200"
+        required: true
   schedule:
-    - cron: "0 */6 * * *"   # every 6 hours UTC
+    - cron: "0 */6 * * *"   # optional: run every 6 hours
 
 jobs:
   backfill:
     runs-on: ubuntu-latest
     concurrency: ph-backfill
-    env:
-      BASE: ${{ secrets.PROD_DOMAIN }}/api/ph/sync
-      TOKEN: ${{ secrets.CRON_SECRET }}
-      TOTAL_PAGES: "2000"   # ~100k rows at size=50
-      CHUNK: "40"           # call /sync in chunks so it stays reliable
-      SIZE: "50"            # big pages are fine with topics=0
-      DELAY: "1000"         # 1s between pages on the server side
     steps:
-      - name: Backfill posts in chunks (no topics)
-        shell: bash
+      - name: Backfill in chunks (with retries)
+        env:
+          BASE:   ${{ secrets.PROD_DOMAIN }}
+          TOKEN:  ${{ secrets.CRON_SECRET }}
+          TOTAL:  ${{ github.event.inputs.total_pages }}
+          CHUNK:  ${{ github.event.inputs.chunk_pages }}
+          SIZE:   ${{ github.event.inputs.size }}
+          TOPICS: ${{ github.event.inputs.topics }}
+          DELAY:  ${{ github.event.inputs.delay }}
         run: |
-          set -e
-          remain=$TOTAL_PAGES
-          while [ "$remain" -gt 0 ]; do
-            pages=$CHUNK
-            [ "$remain" -lt "$CHUNK" ] && pages=$remain
-            URL="${BASE}?pages=${pages}&size=${SIZE}&topics=0&delay=${DELAY}"
-            echo "GET $URL"
-            ok=0
-            for i in 1 2 3; do
-              out=$(curl -sS -L --fail-with-body -D - -H "Authorization: Bearer $TOKEN" "$URL" || true)
-              echo "$out" | tail -n 40
-              if echo "$out" | tr -d '\n' | grep -q '"ok":true'; then ok=1; break; fi
-              echo "⚠️  Chunk failed (attempt $i). Sleeping 10s…"; sleep 10
+          set -euo pipefail
+
+          base=${BASE:-}
+          token=${TOKEN:-}
+          total=${TOTAL:-1000}
+          chunk=${CHUNK:-80}
+          size=${SIZE:-50}
+          topics=${TOPICS:-1}
+          delay=${DELAY:-1200}
+
+          if [ -z "$base" ] || [ -z "$token" ]; then
+            echo "❌ Missing secrets. Set PROD_DOMAIN and CRON_SECRET in repo Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+          # how many requests we’ll make
+          runs=$(( (total + chunk - 1) / chunk ))
+          echo "Backfilling $total pages in $runs chunk(s) of $chunk pages each (size=$size, topics=$topics, delay=${delay}ms)."
+
+          for i in $(seq 1 $runs); do
+            url="$base/api/ph/sync?pages=$chunk&size=$size&topics=$topics&delay=$delay"
+            echo "▶️  Chunk $i/$runs → $url"
+
+            success=0
+            for attempt in 1 2 3; do
+              set +e
+              body=$(curl -sS -L --fail-with-body \
+                       -H "Authorization: Bearer $token" \
+                       "$url")
+              code=$?
+              set -e
+
+              if [ $code -eq 0 ] && echo "$body" | grep -q '"ok":true'; then
+                echo "✅ Chunk $i succeeded: $(echo "$body" | tr -d '\n')"
+                success=1
+                break
+              else
+                echo "⚠️  Attempt $attempt failed (exit $code). Response:"
+                echo "$body"
+                sleep $((10 * attempt))
+              fi
             done
-            [ $ok -eq 1 ] || { echo "❌ Chunk failed after 3 attempts."; exit 1; }
-            remain=$((remain - pages))
+
+            if [ $success -ne 1 ]; then
+              echo "❌ Chunk $i failed after 3 attempts. Stopping."
+              exit 1
+            fi
+
+            # brief pause between chunks (be nice to PH)
+            sleep 5
           done
-          echo "✅ Posts backfill pass completed."
+
+          echo "🎯 Backfill completed successfully."
