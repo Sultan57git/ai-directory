@@ -1,0 +1,40 @@
+name: PH Topics Enrichment
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 3 * * *"     # daily at 03:00 UTC
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    concurrency: ph-topics
+    env:
+      BASE: ${{ secrets.PROD_DOMAIN }}/api/ph/sync
+      TOKEN: ${{ secrets.CRON_SECRET }}
+      TOTAL_PAGES: "200"    # how many pages to enrich per run
+      CHUNK: "10"           # small chunks to avoid complexity spikes
+      SIZE: "15"            # small page size because topics=1 is costly
+      DELAY: "1500"         # 1.5s between pages on the server side
+    steps:
+      - name: Enrich topics in safe chunks
+        shell: bash
+        run: |
+          set -e
+          remain=$TOTAL_PAGES
+          while [ "$remain" -gt 0 ]; do
+            pages=$CHUNK
+            [ "$remain" -lt "$CHUNK" ] && pages=$remain
+            URL="${BASE}?pages=${pages}&size=${SIZE}&topics=1&delay=${DELAY}"
+            echo "GET $URL"
+            ok=0
+            for i in 1 2 3; do
+              out=$(curl -sS -L --fail-with-body -D - -H "Authorization: Bearer $TOKEN" "$URL" || true)
+              echo "$out" | tail -n 40
+              if echo "$out" | tr -d '\n' | grep -q '"ok":true'; then ok=1; break; fi
+              echo "⚠️  Chunk failed (attempt $i). Sleeping 15s…"; sleep 15
+            done
+            [ $ok -eq 1 ] || { echo "❌ Chunk failed after 3 attempts."; exit 1; }
+            remain=$((remain - pages))
+          done
+          echo "✅ Topics enrichment pass completed."
