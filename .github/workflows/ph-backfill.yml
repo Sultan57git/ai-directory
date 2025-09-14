@@ -1,0 +1,24 @@
+# .github/workflows/ph-backfill.yml
+name: PH Backfill
+on:
+  workflow_dispatch:
+    inputs:
+      pages:   { description: 'Pages',   default: '200', required: true }
+      size:    { description: 'Page size (max 50)', default: '50', required: true }
+      topics:  { description: 'Include topics? 1/0', default: '1', required: true }
+      delay:   { description: 'Delay ms between pages', default: '1200', required: true }
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    concurrency: ph-backfill
+    steps:
+      - name: Call sync backfill
+        run: |
+          URL="${{ secrets.PROD_DOMAIN }}/api/ph/sync?pages=${{ inputs.pages }}&size=${{ inputs.size }}&topics=${{ inputs.topics }}&delay=${{ inputs.delay }}"
+          echo "GET $URL"
+          for i in 1 2 3; do
+            curl -sS -L --fail-with-body -D - \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              "$URL" && { echo "✅ Backfill succeeded"; break; } || { echo "Retry $i"; sleep 10; }
+          done
