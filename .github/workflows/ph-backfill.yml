@@ -2,57 +2,108 @@
 name: PH Backfill
 
 on:
-  # Manual run with inputs (you'll see these fields in the UI)
+  # You can run it anytime from the Actions tab
   workflow_dispatch:
     inputs:
-      pages:
-        description: 'Pages to fetch (try 200–2000 if quotas allow)'
+      total_pages:
+        description: "Total pages to fetch this run (will be chunked)"
         required: true
-        default: '200'
+        default: "1000"
+      chunk_pages:
+        description: "Pages per chunk (keeps PH GraphQL complexity under cap)"
+        required: true
+        default: "100"
       size:
-        description: 'Items per page (<= 50)'
+        description: "Page size (10–50). 50 is fastest but heavier."
         required: true
-        default: '50'
+        default: "50"
       topics:
-        description: 'Include topics? 1 = yes, 0 = no'
+        description: "Include topics? 1 = yes, 0 = no"
         required: true
-        default: '1'
+        default: "1"
       delay:
-        description: 'Delay (ms) between pages (helps avoid rate limits)'
+        description: "Delay (ms) between pages within each chunk"
         required: true
-        default: '1200'
+        default: "1200"
 
-  # Automatic backfill every 6 hours (UTC)
+  # Optional: also do an automatic sweep every 6 hours
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: "0 */6 * * *"
 
 jobs:
   backfill:
     runs-on: ubuntu-latest
-    concurrency:
-      group: ph-backfill
-      cancel-in-progress: false
-
+    concurrency: ph-backfill
+    env:
+      PROD_DOMAIN: ${{ secrets.PROD_DOMAIN }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      TOTAL_PAGES: ${{ inputs.total_pages || '1000' }}
+      CHUNK_PAGES: ${{ inputs.chunk_pages || '100' }}
+      SIZE:        ${{ inputs.size        || '50' }}
+      TOPICS:      ${{ inputs.topics      || '1' }}
+      DELAY:       ${{ inputs.delay       || '1200' }}
     steps:
-      - name: Build URL (use inputs if provided; else defaults)
-        id: vars
+      - name: Backfill in chunks (with retries)
+        shell: bash
         run: |
-          PAGES="${{ github.event.inputs.pages || '200' }}"
-          SIZE="${{ github.event.inputs.size || '50' }}"
-          TOPICS="${{ github.event.inputs.topics || '1' }}"
-          DELAY="${{ github.event.inputs.delay || '1200' }}"
-          echo "url=${{ secrets.PROD_DOMAIN }}/api/ph/sync?pages=${PAGES}&size=${SIZE}&topics=${TOPICS}&delay=${DELAY}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
 
-      - name: Call sync backfill (with retries)
-        env:
-          URL: ${{ steps.vars.outputs.url }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: |
-          echo "GET ${URL}"
-          for i in 1 2 3; do
-            curl -sS -L --fail-with-body -D - \
-              -H "Authorization: Bearer ${CRON_SECRET}" \
-              "${URL}" && { echo "✅ Backfill succeeded"; exit 0; }
-            echo "Retry $i"; sleep 10
+          if [[ -z "${PROD_DOMAIN:-}" || -z "${CRON_SECRET:-}" ]]; then
+            echo "❌ Missing secrets. Set PROD_DOMAIN and CRON_SECRET in repo > Settings > Secrets."
+            exit 1
+          fi
+
+          # Helper to call one chunk worth of pages, with retry
+          call_chunk () {
+            local pages_in_chunk="$1"
+            local url="${PROD_DOMAIN}/api/ph/sync?pages=${pages_in_chunk}&size=${SIZE}&topics=${TOPICS}&delay=${DELAY}"
+
+            echo ""
+            echo "➡️  GET $url"
+            for attempt in 1 2 3; do
+              if curl -sS -L --fail-with-body -D - \
+                   -H "Authorization: Bearer ${CRON_SECRET}" \
+                   "$url" \
+                   | tee /dev/stderr \
+                   | grep -q '"ok":true'; then
+                echo "✅ Chunk ok (attempt ${attempt})"
+                return 0
+              else
+                echo "⚠️  Chunk failed (attempt ${attempt}). Sleeping 10s and retrying…"
+                sleep 10
+              fi
+            done
+            echo "❌ Chunk failed after 3 attempts."
+            return 1
+          }
+
+          # Compute how many chunks we need
+          total="${TOTAL_PAGES}"
+          per_chunk="${CHUNK_PAGES}"
+          if (( per_chunk <= 0 )); then
+            echo "❌ chunk_pages must be > 0"
+            exit 1
+          fi
+          chunks=$(( (total + per_chunk - 1) / per_chunk ))
+
+          echo "🔢 Backfill plan:"
+          echo "    total_pages = ${TOTAL_PAGES}"
+          echo "    chunk_pages = ${CHUNK_PAGES}"
+          echo "    size        = ${SIZE}"
+          echo "    topics      = ${TOPICS}"
+          echo "    delay(ms)   = ${DELAY}"
+          echo "    chunks      = ${chunks}"
+          echo ""
+
+          # Run chunks sequentially
+          for c in $(seq 1 "${chunks}"); do
+            # Last chunk may be partial
+            remaining=$(( TOTAL_PAGES - (c-1)*CHUNK_PAGES ))
+            take=$(( remaining < CHUNK_PAGES ? remaining : CHUNK_PAGES ))
+
+            echo "=== 🚚 Chunk ${c}/${chunks} — pages=${take} ==="
+            call_chunk "${take}"
           done
-          echo "❌ Backfill failed after 3 attempts"; exit 1
+
+          echo ""
+          echo "🎉 Backfill job finished."
