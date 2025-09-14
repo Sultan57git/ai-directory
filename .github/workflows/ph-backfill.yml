@@ -1,81 +1,30 @@
-name: PH Backfill (chunked)
+name: PH Backfill (tiny)
 
 on:
-  workflow_dispatch:
-    inputs:
-      total_pages:
-        description: "How many pages to fetch in total (each page has 'size' posts)"
-        required: true
-        default: "2000"       # ~100k posts with size=50
-      chunk_pages:
-        description: "Pages per API call (keep small to avoid PH complexity caps)"
-        required: true
-        default: "20"         # 20 x 50 = 1,000 posts per call → safe
-      size:
-        description: "Posts per page (<= 50)"
-        required: true
-        default: "50"
-      delay:
-        description: "Delay (ms) between pages inside the API (endpoint internal pacing)"
-        required: true
-        default: "1200"
-      topics:
-        description: "Include topics? 0=posts only (safer); 1=include topics (heavier)"
-        required: true
-        default: "0"
+  workflow_dispatch: {}   # run manually from Actions
 
 jobs:
   backfill:
     runs-on: ubuntu-latest
-    concurrency: ph-backfill
+    concurrency: ph-backfill-tiny
     steps:
-      - name: Backfill in chunks (with retries)
+      - name: Backfill posts in tiny chunks (safe)
         env:
           PROD_DOMAIN: ${{ secrets.PROD_DOMAIN }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          TOTAL: ${{ github.event.inputs.total_pages }}
-          CHUNK: ${{ github.event.inputs.chunk_pages }}
-          SIZE: ${{ github.event.inputs.size }}
-          DELAY: ${{ github.event.inputs.delay }}
-          TOPICS: ${{ github.event.inputs.topics }}
         run: |
           set -euo pipefail
-          echo "Domain: $PROD_DOMAIN"
-          echo "Total pages: $TOTAL | Chunk pages: $CHUNK | Size: $SIZE | Topics: $TOPICS | Delay: $DELAY"
+          # SUPER small slice: ~450 posts/run
+          PAGES=30          # 30 pages * size 15
+          SIZE=15
+          DELAY=1800        # 1.8s between pages inside API
+          URL="${PROD_DOMAIN}/api/ph/sync?pages=${PAGES}&size=${SIZE}&topics=0&delay=${DELAY}"
 
-          # How many chunked calls we need
-          CALLS=$(( (TOTAL + CHUNK - 1) / CHUNK ))
-          echo "Planned API calls: $CALLS"
-
-          for ((i=1; i<=CALLS; i++)); do
-            URL="${PROD_DOMAIN}/api/ph/sync?pages=${CHUNK}&size=${SIZE}&topics=${TOPICS}&delay=${DELAY}"
-            echo ""
-            echo "▶ Call $i/$CALLS  →  GET $URL"
-
-            # Up to 3 retries per chunk
-            for attempt in 1 2 3; do
-              set +e
-              RESP=$(curl -sS -L --fail-with-body -D - \
-                -H "Authorization: Bearer ${CRON_SECRET}" \
-                "$URL")
-              CODE=$?
-              set -e
-
-              if [ $CODE -eq 0 ]; then
-                echo "✅ Chunk $i succeeded"
-                break
-              else
-                echo "⚠️  Chunk $i failed (attempt $attempt). Sleeping 10s and retrying…"
-                sleep 10
-              fi
-
-              if [ $attempt -eq 3 ]; then
-                echo "❌ Chunk $i failed after 3 attempts."
-                echo "$RESP"
-                exit 1
-              fi
-            done
+          echo "GET $URL"
+          for i in 1 2 3; do
+            curl -sS -L --fail-with-body -D - \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              "${URL}" && { echo "✅ Tiny backfill succeeded"; exit 0; }
+            echo "⚠️ Retry $i"; sleep 12
           done
-
-          echo ""
-          echo "🎉 Backfill completed."
+          echo "❌ Tiny backfill failed after 3 attempts"; exit 1
