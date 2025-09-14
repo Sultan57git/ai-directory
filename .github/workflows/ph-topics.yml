@@ -1,74 +1,30 @@
-name: PH Topics Enrichment
+name: PH Topics Enrichment (tiny)
 
 on:
-  workflow_dispatch:
-    inputs:
-      total_pages:
-        description: "Total pages to enrich"
-        required: true
-        default: "400"
-      chunk_pages:
-        description: "Pages per call (keep very small with topics=1)"
-        required: true
-        default: "10"         # 10 x 40 = 400 posts per call (safer with topics)
-      size:
-        description: "Posts per page (<= 50)"
-        required: true
-        default: "40"         # 40 keeps complexity a bit lower with topics=1
-      delay:
-        description: "Delay (ms) between pages inside the API"
-        required: true
-        default: "1200"
+  workflow_dispatch: {}   # run manually from Actions
 
 jobs:
-  enrich_topics:
+  topics:
     runs-on: ubuntu-latest
-    concurrency: ph-topics
+    concurrency: ph-topics-tiny
     steps:
-      - name: Enrich topics in chunks (with retries)
+      - name: Add topics in tiny chunks (safe)
         env:
           PROD_DOMAIN: ${{ secrets.PROD_DOMAIN }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          TOTAL: ${{ github.event.inputs.total_pages }}
-          CHUNK: ${{ github.event.inputs.chunk_pages }}
-          SIZE: ${{ github.event.inputs.size }}
-          DELAY: ${{ github.event.inputs.delay }}
         run: |
           set -euo pipefail
-          echo "Domain: $PROD_DOMAIN"
-          echo "Total pages: $TOTAL | Chunk pages: $CHUNK | Size: $SIZE | Delay: $DELAY"
+          # Very small slice for topics (heavier queries)
+          PAGES=15          # 15 pages * size 15 = 225 posts/run
+          SIZE=15
+          DELAY=2000        # 2s between pages inside API
+          URL="${PROD_DOMAIN}/api/ph/sync?pages=${PAGES}&size=${SIZE}&topics=1&delay=${DELAY}"
 
-          CALLS=$(( (TOTAL + CHUNK - 1) / CHUNK ))
-          echo "Planned API calls: $CALLS"
-
-          for ((i=1; i<=CALLS; i++)); do
-            URL="${PROD_DOMAIN}/api/ph/sync?pages=${CHUNK}&size=${SIZE}&topics=1&delay=${DELAY}"
-            echo ""
-            echo "▶ Call $i/$CALLS  →  GET $URL"
-
-            for attempt in 1 2 3; do
-              set +e
-              RESP=$(curl -sS -L --fail-with-body -D - \
-                -H "Authorization: Bearer ${CRON_SECRET}" \
-                "$URL")
-              CODE=$?
-              set -e
-
-              if [ $CODE -eq 0 ]; then
-                echo "✅ Chunk $i (topics) succeeded"
-                break
-              else
-                echo "⚠️  Chunk $i (topics) failed (attempt $attempt). Sleeping 10s and retrying…"
-                sleep 10
-              fi
-
-              if [ $attempt -eq 3 ]; then
-                echo "❌ Chunk $i (topics) failed after 3 attempts."
-                echo "$RESP"
-                exit 1
-              fi
-            done
+          echo "GET $URL"
+          for i in 1 2 3; do
+            curl -sS -L --fail-with-body -D - \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              "${URL}" && { echo "✅ Tiny topics enrichment succeeded"; exit 0; }
+            echo "⚠️ Retry $i"; sleep 12
           done
-
-          echo ""
-          echo "🎉 Topics enrichment completed."
+          echo "❌ Tiny topics enrichment failed after 3 attempts"; exit 1
