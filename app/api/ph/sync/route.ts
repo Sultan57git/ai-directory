@@ -24,7 +24,7 @@ function buildQuery(includeTopics: boolean, first: number) {
       `
     : ``;
 
-  // Use NEWEST for a stable historical walk; cursor-based
+  // NEWEST is stable; we'll cursor through the archive
   return `
     query FetchPosts($after: String) {
       posts(order: NEWEST, after: $after, first: ${first}) {
@@ -89,8 +89,7 @@ function mapPostsToPhPosts(edges: any[]) {
   return (edges || []).map((e: any) => {
     const n = e?.node ?? {};
     return {
-      // table: ph_posts
-      id: String(n.id), // PK
+      id: String(n.id), // PK in ph_posts
       name: n.name ?? null,
       description: n.tagline ?? null,
       slug: n.slug ?? null,
@@ -108,8 +107,7 @@ function mapPostsToTools(edges: any[]) {
   return (edges || []).map((e: any) => {
     const n = e?.node ?? {};
     return {
-      // table: tools (UI reads this)
-      ph_id: String(n.id), // 🔧 ensure tools.ph_id is UNIQUE or PK
+      ph_id: String(n.id), // ensure tools.ph_id is unique
       name: n.name ?? null,
       tagline: n.tagline ?? null,
       slug: n.slug ?? null,
@@ -177,9 +175,10 @@ export async function POST(req: Request) {
     // Tunables
     const MODE = (url.searchParams.get("mode") || "resume").toLowerCase() as "resume" | "full";
     const PAGES = Math.min(Number(url.searchParams.get("pages") || 6), 200);
-    const DELAY = Math.max(Number(url.searchParams.get("delay") || 800), 0);
-    const SIZE = Math.max(10, Math.min(Number(url.searchParams.get("size") || 25), 50));
-    const INCLUDE_TOPICS = ["1", "true", "yes"].includes((url.searchParams.get("topics") || "0").toLowerCase());
+    const DELAY_BASE = Math.max(Number(url.searchParams.get("delay") || 800), 0);
+    let size = Math.max(10, Math.min(Number(url.searchParams.get("size") || 25), 50));
+    let includeTopics = ["1", "true", "yes"].includes((url.searchParams.get("topics") || "0").toLowerCase());
+
     const MAX_BACKOFF = 3;
 
     // Cursor state
@@ -189,7 +188,7 @@ export async function POST(req: Request) {
       .eq("id", true)
       .maybeSingle();
 
-    // New behavior: if mode=full, start from scratch (ignore stored cursor)
+    // If mode=full, start from scratch (ignore stored cursor)
     let after: string | undefined = MODE === "full" ? undefined : (state?.last_cursor || undefined);
     let total = 0;
     let pagesRun = 0;
@@ -197,80 +196,94 @@ export async function POST(req: Request) {
     for (let i = 0; i < PAGES; i++) {
       pagesRun++;
 
-      // Fetch a page (with exponential backoff on rate/complexity)
-      let tries = 0;
-      let got: Awaited<ReturnType<typeof fetchPH>>;
+      let backoffTry = 0;
       while (true) {
-        got = await fetchPH(after, INCLUDE_TOPICS, SIZE);
-        if (got.ok) break;
+        const got = await fetchPH(after, includeTopics, size);
 
-        const msg = String(got.error || "");
-        const isComplexity = got.status === 429 || /complexit|rate|limit/i.test(msg);
-        if (!isComplexity || tries >= MAX_BACKOFF) {
-          return NextResponse.json({ ok: false, page: i + 1, error: msg }, { status: 500 });
-        }
-        await sleep(Math.pow(2, tries) * 2000); // 2s, 4s, 8s
-        tries++;
-      }
+        if (got.ok) {
+          const { pageInfo, edges } = got.data as {
+            pageInfo: { hasNextPage: boolean; endCursor: string | null };
+            edges: any[];
+          };
 
-      const { pageInfo, edges } = got.data as {
-        pageInfo: { hasNextPage: boolean; endCursor: string | null };
-        edges: any[];
-      };
-
-      // Upsert into ph_posts
-      const phPosts = mapPostsToPhPosts(edges);
-      if (phPosts.length) {
-        const { error: upErr } = await supa
-          .from("ph_posts")
-          .upsert(phPosts, { onConflict: "id" }); // id is PK
-        if (upErr) {
-          return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
-        }
-        total += phPosts.length;
-      }
-
-      // Mirror into tools so the UI can see everything
-      const toolsRows = mapPostsToTools(edges);
-      if (toolsRows.length) {
-        // ⚠️ Ensure an index/unique on tools.ph_id
-        const { error: toolsErr } = await supa
-          .from("tools")
-          .upsert(toolsRows, { onConflict: "ph_id" }); // 🔧 change if your unique is different
-        if (toolsErr) {
-          // Don’t fail whole job; return as warning payload if you prefer
-          console.warn("tools upsert error:", toolsErr.message);
-        }
-      }
-
-      // Topic mappings for UI filter = tool_topics
-      if (INCLUDE_TOPICS && edges.length) {
-        const topicRows = mapTopicsToToolTopics(edges);
-        if (topicRows.length) {
-          const { error: tpErr } = await supa
-            .from("tool_topics")
-            .upsert(topicRows, { onConflict: "ph_id,topic_slug" });
-          if (tpErr) {
-            console.warn("tool_topics upsert error:", tpErr.message);
+          // Upsert into ph_posts
+          const phPosts = mapPostsToPhPosts(edges);
+          if (phPosts.length) {
+            const { error: upErr } = await supa
+              .from("ph_posts")
+              .upsert(phPosts, { onConflict: "id" }); // id is PK
+            if (upErr) {
+              return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
+            }
+            total += phPosts.length;
           }
+
+          // Mirror into tools for UI
+          const toolsRows = mapPostsToTools(edges);
+          if (toolsRows.length) {
+            const { error: toolsErr } = await supa
+              .from("tools")
+              .upsert(toolsRows, { onConflict: "ph_id" });
+            if (toolsErr) {
+              // Non-fatal; continue syncing
+              console.warn("tools upsert error:", toolsErr.message);
+            }
+          }
+
+          // Topic mappings (only if enabled)
+          if (includeTopics && edges.length) {
+            const topicRows = mapTopicsToToolTopics(edges);
+            if (topicRows.length) {
+              const { error: tpErr } = await supa
+                .from("tool_topics")
+                .upsert(topicRows, { onConflict: "ph_id,topic_slug" });
+              if (tpErr) {
+                console.warn("tool_topics upsert error:", tpErr.message);
+              }
+            }
+          }
+
+          // Advance & persist cursor
+          if (!pageInfo?.hasNextPage || !pageInfo?.endCursor) {
+            after = undefined;
+            await supa
+              .from("ph_sync_state")
+              .upsert({ id: true, last_cursor: null, updated_at: new Date().toISOString() });
+            break; // finished archive
+          } else {
+            after = pageInfo.endCursor ?? undefined;
+            await supa
+              .from("ph_sync_state")
+              .upsert({ id: true, last_cursor: after, updated_at: new Date().toISOString() });
+          }
+
+          if (DELAY_BASE > 0) await sleep(DELAY_BASE);
+          break; // page done; go to next i
+        } else {
+          // Handle complexity/rate errors adaptively
+          const msg = String(got.error || "");
+          const isComplexity = got.status === 429 || /complexit|rate|limit/i.test(msg);
+
+          if (!isComplexity || backoffTry >= MAX_BACKOFF) {
+            return NextResponse.json({ ok: false, page: i + 1, error: msg }, { status: 500 });
+          }
+
+          // Adapt: reduce size, disable topics, and back off
+          if (includeTopics) {
+            includeTopics = false; // topics add a lot of complexity
+          } else if (size > 10) {
+            size = Math.max(10, Math.floor(size / 2)); // halve size down to 10
+          }
+
+          const wait = Math.pow(2, backoffTry) * 2000; // 2s, 4s, 8s
+          await sleep(wait);
+          backoffTry++;
+          continue;
         }
       }
 
-      // Advance & persist cursor
-      if (!pageInfo?.hasNextPage || !pageInfo?.endCursor) {
-        after = undefined;
-        await supa
-          .from("ph_sync_state")
-          .upsert({ id: true, last_cursor: null, updated_at: new Date().toISOString() });
-        break;
-      } else {
-        after = pageInfo.endCursor ?? undefined;
-        await supa
-          .from("ph_sync_state")
-          .upsert({ id: true, last_cursor: after, updated_at: new Date().toISOString() });
-      }
-
-      if (DELAY > 0) await sleep(DELAY);
+      // Exit outer loop if archive finished
+      if (!after) break;
     }
 
     return NextResponse.json({
@@ -278,9 +291,9 @@ export async function POST(req: Request) {
       mode: MODE,
       pages_run: pagesRun,
       upserted_posts: total,
-      size: SIZE,
-      topics: INCLUDE_TOPICS,
-      delay_ms: DELAY,
+      size,
+      topics: includeTopics,
+      delay_ms: DELAY_BASE,
       next_cursor: after || null,
     });
   } catch (err: any) {
