@@ -52,6 +52,8 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+type PHBad = { ok: false; status: number; error: string; resetInSec?: number };
+
 async function fetchPH(after: string | undefined, includeTopics: boolean, first: number) {
   const token = process.env.PH_DEV_TOKEN!;
   const QUERY = buildQuery(includeTopics, first);
@@ -64,7 +66,15 @@ async function fetchPH(after: string | undefined, includeTopics: boolean, first:
 
   const text = await res.text();
   if (!res.ok) {
-    return { ok: false as const, status: res.status, error: `PH error ${res.status}: ${text}` };
+    // Try to parse reset_in from PH error payload
+    let resetInSec: number | undefined;
+    try {
+      const j = JSON.parse(text);
+      const d = j?.errors?.[0]?.details;
+      if (typeof d?.reset_in === "number") resetInSec = d.reset_in;
+    } catch {}
+    const bad: PHBad = { ok: false, status: res.status, error: `PH error ${res.status}: ${text}`, resetInSec };
+    return bad;
   }
 
   let json: any = null;
@@ -75,7 +85,11 @@ async function fetchPH(after: string | undefined, includeTopics: boolean, first:
   }
 
   if (json?.errors?.length) {
-    return { ok: false as const, status: 429, error: `PH GraphQL error: ${JSON.stringify(json.errors)}` };
+    // GraphQL layer errors (includes complexity)
+    // They don't always include details.reset_in here, but we keep format consistent
+    let resetInSec: number | undefined;
+    const bad: PHBad = { ok: false, status: 429, error: `PH GraphQL error: ${JSON.stringify(json.errors)}`, resetInSec };
+    return bad;
   }
 
   const data = json?.data?.posts;
@@ -225,7 +239,6 @@ export async function POST(req: Request) {
               .from("tools")
               .upsert(toolsRows, { onConflict: "ph_id" });
             if (toolsErr) {
-              // Non-fatal; continue syncing
               console.warn("tools upsert error:", toolsErr.message);
             }
           }
@@ -260,25 +273,38 @@ export async function POST(req: Request) {
           if (DELAY_BASE > 0) await sleep(DELAY_BASE);
           break; // page done; go to next i
         } else {
-          // Handle complexity/rate errors adaptively
+          // Handle rate limits & complexity adaptively
           const msg = String(got.error || "");
-          const isComplexity = got.status === 429 || /complexit|rate|limit/i.test(msg);
+          const isComplexity = got.status === 429 && /complexit|Complexit/i.test(msg);
+          const isRate = got.status === 429 && /rate_limit_reached/i.test(msg);
 
-          if (!isComplexity || backoffTry >= MAX_BACKOFF) {
-            return NextResponse.json({ ok: false, page: i + 1, error: msg }, { status: 500 });
+          if (isRate) {
+            // Respect reset window if present
+            const waitSec = (got as any).resetInSec ?? 60; // default 60s if not provided
+            const buffer = 5;
+            await sleep((waitSec + buffer) * 1000);
+            // after waiting, try again WITHOUT counting against backoff tries
+            continue;
           }
 
-          // Adapt: reduce size, disable topics, and back off
-          if (includeTopics) {
-            includeTopics = false; // topics add a lot of complexity
-          } else if (size > 10) {
-            size = Math.max(10, Math.floor(size / 2)); // halve size down to 10
+          if (isComplexity) {
+            if (includeTopics) {
+              includeTopics = false; // topics add a lot of complexity
+            } else if (size > 10) {
+              size = Math.max(10, Math.floor(size / 2)); // halve size down to 10
+            }
+
+            if (backoffTry >= MAX_BACKOFF) {
+              return NextResponse.json({ ok: false, page: i + 1, error: msg }, { status: 500 });
+            }
+            const wait = Math.pow(2, backoffTry) * 2000; // 2s, 4s, 8s
+            await sleep(wait);
+            backoffTry++;
+            continue;
           }
 
-          const wait = Math.pow(2, backoffTry) * 2000; // 2s, 4s, 8s
-          await sleep(wait);
-          backoffTry++;
-          continue;
+          // Other errors → abort this run
+          return NextResponse.json({ ok: false, page: i + 1, error: msg }, { status: 500 });
         }
       }
 
