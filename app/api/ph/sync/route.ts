@@ -13,6 +13,8 @@ function supabaseAdmin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
+/** ---------- GraphQL ---------- */
+
 function buildQuery(includeTopics: boolean, first: number) {
   const topicsBlock = includeTopics
     ? `
@@ -22,9 +24,10 @@ function buildQuery(includeTopics: boolean, first: number) {
       `
     : ``;
 
+  // Use NEWEST for a stable historical walk; cursor-based
   return `
     query FetchPosts($after: String) {
-      posts(order: RANKING, after: $after, first: ${first}) {
+      posts(order: NEWEST, after: $after, first: ${first}) {
         pageInfo { hasNextPage endCursor }
         edges {
           node {
@@ -80,12 +83,14 @@ async function fetchPH(after: string | undefined, includeTopics: boolean, first:
   return { ok: true as const, status: 200, data };
 }
 
-function mapPosts(edges: any[]) {
+/** ---------- Mapping helpers ---------- */
+
+function mapPostsToPhPosts(edges: any[]) {
   return (edges || []).map((e: any) => {
     const n = e?.node ?? {};
     return {
-      // ---- ph_posts columns ----
-      id: String(n.id),                       // primary key
+      // table: ph_posts
+      id: String(n.id), // PK
       name: n.name ?? null,
       description: n.tagline ?? null,
       slug: n.slug ?? null,
@@ -99,13 +104,49 @@ function mapPosts(edges: any[]) {
   });
 }
 
+function mapPostsToTools(edges: any[]) {
+  return (edges || []).map((e: any) => {
+    const n = e?.node ?? {};
+    return {
+      // table: tools (UI reads this)
+      ph_id: String(n.id), // 🔧 ensure tools.ph_id is UNIQUE or PK
+      name: n.name ?? null,
+      tagline: n.tagline ?? null,
+      slug: n.slug ?? null,
+      website_url: n.website ?? null,
+      votes: n.votesCount ?? 0,
+      comments: n.commentsCount ?? 0,
+      thumbnail_url: n.thumbnail?.url ?? null,
+      posted_at: n.createdAt ? new Date(n.createdAt).toISOString() : null,
+      source: "ph" as const,
+      updated_at: new Date().toISOString(),
+    };
+  });
+}
+
+function mapTopicsToToolTopics(edges: any[]) {
+  const rows: { ph_id: string; topic_slug: string; topic_name: string }[] = [];
+  for (const e of edges || []) {
+    const n = e?.node;
+    const postId = String(n?.id ?? "");
+    if (!postId) continue;
+    const tEdges = n?.topics?.edges ?? [];
+    for (const te of tEdges) {
+      const tn = te?.node;
+      if (tn?.slug && tn?.name) {
+        rows.push({ ph_id: postId, topic_slug: tn.slug, topic_name: tn.name });
+      }
+    }
+  }
+  return rows;
+}
+
 function bearer(req: Request) {
   const h = req.headers.get("authorization") || "";
   return h.toLowerCase().startsWith("bearer ") ? h.slice(7).trim() : "";
 }
 
-/** GET: accepts Authorization: Bearer <CRON_SECRET> OR ?token=<CRON_SECRET>.
- *  Proxies to POST so the worker logic lives in one place. */
+/** GET proxies to POST so logic lives in one place */
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const headerToken = bearer(req);
@@ -120,33 +161,43 @@ export async function GET(req: Request) {
   return POST(proxy);
 }
 
+/** POST: run sync
+ * Query params:
+ * - mode=resume|full (default: resume)
+ * - pages=number (default 6, max 200)
+ * - size=10..50 (default 25)
+ * - delay=ms between pages (default 800)
+ * - topics=true|false (default false)
+ */
 export async function POST(req: Request) {
   try {
     const supa = supabaseAdmin();
     const url = new URL(req.url);
 
     // Tunables
+    const MODE = (url.searchParams.get("mode") || "resume").toLowerCase() as "resume" | "full";
     const PAGES = Math.min(Number(url.searchParams.get("pages") || 6), 200);
     const DELAY = Math.max(Number(url.searchParams.get("delay") || 800), 0);
     const SIZE = Math.max(10, Math.min(Number(url.searchParams.get("size") || 25), 50));
-    const INCLUDE_TOPICS = ["1", "true", "yes"].includes(
-      (url.searchParams.get("topics") || "0").toLowerCase()
-    );
-
+    const INCLUDE_TOPICS = ["1", "true", "yes"].includes((url.searchParams.get("topics") || "0").toLowerCase());
     const MAX_BACKOFF = 3;
 
-    // Resume cursor
+    // Cursor state
     const { data: state } = await supa
       .from("ph_sync_state")
       .select("last_cursor")
       .eq("id", true)
       .maybeSingle();
 
-    let after: string | undefined = state?.last_cursor || undefined;
+    // New behavior: if mode=full, start from scratch (ignore stored cursor)
+    let after: string | undefined = MODE === "full" ? undefined : (state?.last_cursor || undefined);
     let total = 0;
+    let pagesRun = 0;
 
     for (let i = 0; i < PAGES; i++) {
-      // fetch one page (with exponential backoff on rate/complexity)
+      pagesRun++;
+
+      // Fetch a page (with exponential backoff on rate/complexity)
       let tries = 0;
       let got: Awaited<ReturnType<typeof fetchPH>>;
       while (true) {
@@ -167,45 +218,45 @@ export async function POST(req: Request) {
         edges: any[];
       };
 
-      // Upsert posts
-      const posts = mapPosts(edges);
-      if (posts.length) {
+      // Upsert into ph_posts
+      const phPosts = mapPostsToPhPosts(edges);
+      if (phPosts.length) {
         const { error: upErr } = await supa
           .from("ph_posts")
-          .upsert(posts, { onConflict: "id" }); // id is PK
-
+          .upsert(phPosts, { onConflict: "id" }); // id is PK
         if (upErr) {
           return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
         }
-        total += posts.length;
+        total += phPosts.length;
       }
 
-      // Upsert topics mapping if requested
-      if (INCLUDE_TOPICS && (edges || []).length) {
-        const topicRows: { post_id: string; topic_slug: string; topic_name: string }[] = [];
-        for (const e of edges) {
-          const n = e?.node;
-          const postId = String(n?.id ?? "");
-          if (!postId) continue;
-          const tEdges = n?.topics?.edges ?? [];
-          for (const te of tEdges) {
-            const tn = te?.node;
-            if (tn?.slug && tn?.name) {
-              topicRows.push({ post_id: postId, topic_slug: tn.slug, topic_name: tn.name });
-            }
-          }
+      // Mirror into tools so the UI can see everything
+      const toolsRows = mapPostsToTools(edges);
+      if (toolsRows.length) {
+        // ⚠️ Ensure an index/unique on tools.ph_id
+        const { error: toolsErr } = await supa
+          .from("tools")
+          .upsert(toolsRows, { onConflict: "ph_id" }); // 🔧 change if your unique is different
+        if (toolsErr) {
+          // Don’t fail whole job; return as warning payload if you prefer
+          console.warn("tools upsert error:", toolsErr.message);
         }
+      }
+
+      // Topic mappings for UI filter = tool_topics
+      if (INCLUDE_TOPICS && edges.length) {
+        const topicRows = mapTopicsToToolTopics(edges);
         if (topicRows.length) {
           const { error: tpErr } = await supa
-            .from("ph_post_topics")
-            .upsert(topicRows, { onConflict: "post_id,topic_slug" });
+            .from("tool_topics")
+            .upsert(topicRows, { onConflict: "ph_id,topic_slug" });
           if (tpErr) {
-            return NextResponse.json({ ok: false, error: tpErr.message }, { status: 500 });
+            console.warn("tool_topics upsert error:", tpErr.message);
           }
         }
       }
 
-      // advance & persist cursor
+      // Advance & persist cursor
       if (!pageInfo?.hasNextPage || !pageInfo?.endCursor) {
         after = undefined;
         await supa
@@ -224,8 +275,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      upserted: total,
-      pages: PAGES,
+      mode: MODE,
+      pages_run: pagesRun,
+      upserted_posts: total,
       size: SIZE,
       topics: INCLUDE_TOPICS,
       delay_ms: DELAY,
