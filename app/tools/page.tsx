@@ -29,15 +29,12 @@ export default function ToolsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // pagination state
+  // pagination
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const pageSize = 60; // you can tune this
 
-  const pageSize = 60; // 🔧 change page size if you like
-
-  // load a page
-  async function loadPage(p: number, append = false) {
-    if (p < 1) return;
+  async function fetchPage(p: number, append = false) {
     if (append) setLoadingMore(true);
     else {
       setLoading(true);
@@ -45,33 +42,50 @@ export default function ToolsPage() {
     }
 
     try {
-      const res = await fetch(`/api/tools/list?page=${p}&pageSize=${pageSize}`);
+      const url = `/api/tools/list?page=${p}&pageSize=${pageSize}`;
+      const res = await fetch(url, { cache: "no-store" });
       const json: ApiResponse = await res.json();
-      if (!json.ok) throw new Error(json.error || "Failed to fetch");
 
+      // Debug aid in case UI gets stuck
+      console.log("API /tools/list resp:", json);
+
+      if (!json.ok) throw new Error(json.error || "Failed to fetch tools");
       setTools((prev) => (append ? [...prev, ...json.tools] : json.tools));
       setPage(json.page);
       setHasMore(json.page * json.pageSize < (json.total || 0));
     } catch (e: any) {
-      setErr(String(e));
+      console.error("Tools fetch error:", e);
+      setErr(String(e?.message || e));
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
   }
 
-  // first load
+  // initial load
   useEffect(() => {
-    loadPage(1, false);
+    fetchPage(1, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <main className="max-w-5xl mx-auto px-4 py-10">
-      <h1 className="text-3xl font-bold mb-6">Latest Product Hunt Tools</h1>
+      <div className="mb-2 flex items-center justify-between">
+        <h1 className="text-3xl font-bold">Latest on Product Hunt</h1>
+        <div className="text-sm text-gray-500">
+          {loading ? "Loading…" : `Showing ${tools.length}${hasMore ? " +" : ""}`}
+        </div>
+      </div>
 
-      {loading && <div>Loading…</div>}
-      {!loading && err && <div className="text-red-600">Error: {err}</div>}
-      {!loading && !err && tools.length === 0 && <div>No tools yet.</div>}
+      {err && (
+        <div className="mb-4 rounded-lg border border-red-300 bg-red-50 p-3 text-red-700">
+          Error: {err}
+        </div>
+      )}
+
+      {!loading && !err && tools.length === 0 && (
+        <div>No tools yet.</div>
+      )}
 
       <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {tools.map((t) => (
@@ -114,10 +128,10 @@ export default function ToolsPage() {
       </ul>
 
       {/* Load more */}
-      {hasMore && !loading && (
+      {hasMore && (
         <div className="mt-8 text-center">
           <button
-            onClick={() => loadPage(page + 1, true)}
+            onClick={() => fetchPage(page + 1, true)}
             disabled={loadingMore}
             className="px-6 py-2 rounded-xl border shadow-sm hover:bg-gray-50 disabled:opacity-50"
           >
