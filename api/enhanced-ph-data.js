@@ -8,7 +8,7 @@ export default async function handler(req, res) {
     let hasNextPage = true;
     let cursor = null;
     let pageCount = 0;
-    const maxPages = 100; // Maximum possible products
+    const maxPages = 25; // Reduce to avoid rate limits
 
     while (hasNextPage && pageCount < maxPages) {
       const query = `
@@ -95,7 +95,7 @@ export default async function handler(req, res) {
       
       console.log(`Page ${pageCount} processed, total: ${allProducts.length}`);
       
-      await sleep(1500); // Rate limiting
+      await sleep(3000); // Increase delay to 3 seconds
     }
 
     // Store all products
