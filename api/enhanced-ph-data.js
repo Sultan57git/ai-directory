@@ -396,7 +396,8 @@ async function makeGraphQLRequest(query, variables = {}) {
 }
 
 async function storeCompleteData(products) {
-  const { createClient } = require('@supabase/supabase-js');
+  // Use dynamic import instead of require
+  const { createClient } = await import('@supabase/supabase-js');
   
   const supabase = createClient(
     process.env.SUPABASE_URL,
