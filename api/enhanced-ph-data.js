@@ -2,8 +2,9 @@
 // ALL products, essential fields only
 
 export default async function handler(req, res) {
+  const allProducts = []; // Move outside try block
+  
   try {
-    const allProducts = [];
     let hasNextPage = true;
     let cursor = null;
     let pageCount = 0;
