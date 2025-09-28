@@ -23,7 +23,7 @@ export default async function handler(req, res) {
 async function getCompleteProductData() {
   const query = `
     query {
-      posts(first: 20) {
+      posts(first: 10) {
         edges {
           node {
             id
@@ -35,7 +35,6 @@ async function getCompleteProductData() {
             votesCount
             commentsCount
             createdAt
-            featuredAt
             
             thumbnail {
               url
@@ -47,9 +46,6 @@ async function getCompleteProductData() {
               username
               headline
               profileImage
-              followers {
-                totalCount
-              }
               url
               twitterUsername
             }
@@ -57,23 +53,8 @@ async function getCompleteProductData() {
             topics {
               edges {
                 node {
-                  id
                   name
                   slug
-                }
-              }
-            }
-            
-            comments {
-              edges {
-                node {
-                  id
-                  body
-                  createdAt
-                  user {
-                    name
-                    username
-                  }
                 }
               }
             }
@@ -169,7 +150,7 @@ function processCompleteProduct(product) {
     desktop_app: businessIntel.hasDesktopApp,
     
     // Social & Community
-    follower_count: makers.reduce((sum, m) => sum + (m.followers?.totalCount || 0), 0),
+    follower_count: 0, // Removed complex followers query
     social_twitter: makers.find(m => m.twitterUsername)?.twitterUsername || null,
     social_linkedin: null,
     social_facebook: null,
