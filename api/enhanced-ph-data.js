@@ -22,8 +22,8 @@ export default async function handler(req, res) {
 
 async function getCompleteProductData() {
   const query = `
-    query GetCompleteProducts($cursor: String) {
-      posts(first: 20, after: $cursor) {
+    query {
+      posts(first: 20) {
         edges {
           node {
             id
@@ -62,7 +62,6 @@ async function getCompleteProductData() {
                   id
                   name
                   slug
-                  description
                 }
               }
             }
@@ -83,35 +82,23 @@ async function getCompleteProductData() {
             }
           }
         }
-        pageInfo {
-          endCursor
-          hasNextPage
-        }
       }
     }
   `;
 
   let allProducts = [];
-  let cursor = null;
-  let hasNextPage = true;
-  let pageCount = 0;
 
-  while (hasNextPage && pageCount < 3) { // Limit to 3 pages for now
-    const response = await makeGraphQLRequest(query, { cursor });
-    const { posts } = response.data;
-    
-    // Process each product with complete data extraction
-    const processedProducts = posts.edges.map(edge => processCompleteProduct(edge.node));
-    
-    allProducts.push(...processedProducts);
-    
-    cursor = posts.pageInfo.endCursor;
-    hasNextPage = posts.pageInfo.hasNextPage;
-    pageCount++;
-    
-    // Rate limiting
-    await sleep(1000);
+  const response = await makeGraphQLRequest(query);
+  if (!response.data || !response.data.posts) {
+    throw new Error('Invalid API response structure');
   }
+  
+  const { posts } = response.data;
+  
+  // Process each product with complete data extraction
+  const processedProducts = posts.edges.map(edge => processCompleteProduct(edge.node));
+  
+  allProducts.push(...processedProducts);
 
   return allProducts;
 }
