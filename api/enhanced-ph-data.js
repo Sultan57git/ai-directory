@@ -42,18 +42,14 @@ async function getCompleteProductData() {
             }
             
             makers {
-              edges {
-                node {
-                  id
-                  name
-                  username
-                  headline
-                  profileImage
-                  followersCount
-                  url
-                  twitterUsername
-                }
-              }
+              id
+              name
+              username
+              headline
+              profileImage
+              followersCount
+              url
+              twitterUsername
             }
             
             topics {
@@ -76,7 +72,6 @@ async function getCompleteProductData() {
                     name
                     username
                   }
-                  maker
                 }
               }
             }
@@ -104,13 +99,12 @@ async function getCompleteProductData() {
 }
 
 function processCompleteProduct(product) {
-  // Extract makers data
-  const makers = product.makers.edges.map(edge => edge.node);
+  // Extract makers data - now it's a direct array, not edges
+  const makers = product.makers || [];
   const makerNames = makers.map(m => m.name).join(', ');
   
   // Calculate metrics
   const comments = product.comments?.edges || [];
-  const makerComments = comments.filter(c => c.node.maker);
   
   // Extract categories
   const categories = product.topics.edges.map(e => e.node.name);
@@ -184,7 +178,7 @@ function processCompleteProduct(product) {
     total_upvotes: product.votesCount,
     upvote_velocity: calculateUpvoteVelocity(product.votesCount, product.createdAt),
     comment_engagement: parseFloat((comments.length / Math.max(product.votesCount, 1)).toFixed(2)),
-    maker_comment_count: makerComments.length,
+    maker_comment_count: 0, // Can't determine from new structure
     
     // Collections & Features
     collections: [],
