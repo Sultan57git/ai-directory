@@ -97,11 +97,11 @@ function processCompleteProduct(product) {
   const businessIntel = analyzeProductDetails(product);
   
   return {
-    // Basic fields - using 'id' instead of 'ph_id'
+  return {
+    // Basic fields - mapping to your actual table columns
     id: product.id,
     name: product.name,
-    tagline: product.tagline,
-    description: product.description,
+    description: product.tagline, // tagline maps to description column
     slug: product.slug,
     website_url: product.url,
     votes: product.votesCount,
@@ -160,7 +160,7 @@ function processCompleteProduct(product) {
     // Performance Metrics
     total_upvotes: product.votesCount,
     upvote_velocity: calculateUpvoteVelocity(product.votesCount, product.createdAt),
-    comment_engagement: parseFloat((comments.length / Math.max(product.votesCount, 1)).toFixed(2)),
+    comment_engagement: 0, // Simplified
     maker_comment_count: 0, // Can't determine from new structure
     
     // Collections & Features
