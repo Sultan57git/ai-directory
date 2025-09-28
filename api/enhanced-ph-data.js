@@ -47,8 +47,7 @@ export default async function handler(req, res) {
                 }
                 
                 website
-                twitterUrl
-                isFeatured
+                featuredAt
               }
             }
             pageInfo {
@@ -178,7 +177,7 @@ function processStreamlinedProduct(product) {
     upvote_velocity: calculateUpvoteVelocity(product.votesCount, product.createdAt),
     
     // Essential status
-    is_featured: product.isFeatured || false,
+    is_featured: product.featuredAt ? true : false,
     
     // Essential tech info
     platforms: detectPlatforms(allText),
@@ -195,11 +194,6 @@ function processStreamlinedProduct(product) {
 function extractTwitterHandle(makers, product) {
   const makerTwitter = makers.find(m => m.twitterUsername)?.twitterUsername;
   if (makerTwitter) return makerTwitter;
-  
-  if (product.twitterUrl) {
-    const match = product.twitterUrl.match(/twitter\.com\/([^\/\?]+)/);
-    if (match) return match[1];
-  }
   
   return null;
 }
