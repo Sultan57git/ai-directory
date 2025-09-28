@@ -136,7 +136,7 @@ function processStreamlinedProduct(product) {
   ].join(' ').toLowerCase();
   
   return {
-    // Core product data (your existing structure)
+    // Core product data (matching your existing structure)
     id: product.id,
     name: product.name,
     title: product.name,
@@ -149,7 +149,7 @@ function processStreamlinedProduct(product) {
     thumbnail_url: product.thumbnail?.url,
     posted_at: product.createdAt,
     
-    // Categories
+    // Categories (your existing columns)
     categories: topics.map(t => t.node.name).join(', '),
     category_slugs: topics.map(t => t.node.slug).join(', '),
     topics: topics.map(t => ({
