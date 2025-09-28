@@ -47,7 +47,9 @@ async function getCompleteProductData() {
               username
               headline
               profileImage
-              followers
+              followers {
+                totalCount
+              }
               url
               twitterUsername
             }
@@ -167,7 +169,7 @@ function processCompleteProduct(product) {
     desktop_app: businessIntel.hasDesktopApp,
     
     // Social & Community
-    follower_count: makers.reduce((sum, m) => sum + (m.followers || 0), 0),
+    follower_count: makers.reduce((sum, m) => sum + (m.followers?.totalCount || 0), 0),
     social_twitter: makers.find(m => m.twitterUsername)?.twitterUsername || null,
     social_linkedin: null,
     social_facebook: null,
