@@ -97,8 +97,8 @@ function processCompleteProduct(product) {
   const businessIntel = analyzeProductDetails(product);
   
   return {
-    // Basic fields
-    ph_id: product.id,
+    // Basic fields - using 'id' instead of 'ph_id'
+    id: product.id,
     name: product.name,
     tagline: product.tagline,
     description: product.description,
@@ -403,11 +403,11 @@ async function storeCompleteData(products) {
     process.env.SUPABASE_ANON_KEY
   );
   
-  // Batch insert with upsert
+  // Batch insert with upsert using 'id' column
   const { data, error } = await supabase
     .from('ph_posts')
     .upsert(products, { 
-      onConflict: 'ph_id',
+      onConflict: 'id',
       ignoreDuplicates: false 
     });
   
