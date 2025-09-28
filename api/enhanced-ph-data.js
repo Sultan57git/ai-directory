@@ -409,7 +409,7 @@ async function makeGraphQLRequest(query, variables = {}) {
   const response = await fetch('https://api.producthunt.com/v2/api/graphql', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${process.env.PRODUCT_HUNT_API_TOKEN}`,
+      'Authorization': `Bearer ${process.env.PH_DEV_TOKEN}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({ query, variables })
