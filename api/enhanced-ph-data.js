@@ -406,7 +406,16 @@ async function makeGraphQLRequest(query, variables = {}) {
     throw new Error(`API request failed: ${response.statusText}`);
   }
   
-  return response.json();
+  const result = await response.json();
+  
+  // Debug: Log the actual response structure
+  console.log('API Response:', JSON.stringify(result, null, 2));
+  
+  if (result.errors) {
+    throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  }
+  
+  return result;
 }
 
 async function storeCompleteData(products) {
